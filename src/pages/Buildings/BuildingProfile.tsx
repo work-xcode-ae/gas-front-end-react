@@ -27,6 +27,8 @@ import GasContractDrawer from './GasContractDrawer';
 import TenantInvoicesDrawer from './TenantInvoicesDrawer';
 import TenantProfileDrawer from './TenantProfileDrawer';
 import AddAmcContractModal from './AddAmcContractModal';
+import { RefillRequestDrawer, NewRefillRequestModal } from './RefillRequestDrawer';
+import type { RefillRequestItem } from './RefillRequestDrawer';
 import type { SupplyContractRecord } from './GasContractDrawer';
 import type { MeterServiceType } from './MeterServiceModal';
 import type { MeterRecord } from './meterTypes';
@@ -391,13 +393,68 @@ const building = {
     inspectorDept: 'إدارة الدفاع المدني — أبوظبي',
   },
   refillRequests: [
-    { id: 'RFR-2026-0089', date: '2026-09-10', requestedBy: 'مدير المبنى', tank: 'T-001', tankLabel: 'خزان LPG 1', currentLevel: 3750, capacity: 5000, levelPct: 75, quantityNeeded: 1000, quantityUnit: 'لتر', supplier: 'EMGAS', scheduledDate: '2026-09-15', status: 'approved', priority: 'medium', notes: 'تعبئة روتينية' },
-    { id: 'RFR-2026-0074', date: '2026-09-01', requestedBy: 'مدير المبنى', tank: 'T-002', tankLabel: 'خزان LPG 2', currentLevel: 1200, capacity: 5000, levelPct: 24, quantityNeeded: 3500, quantityUnit: 'لتر', supplier: 'EMGAS', scheduledDate: '2026-09-03', status: 'completed', priority: 'high', notes: 'مستوى منخفض', completedDate: '2026-09-03', deliveredQty: 3500 },
-    { id: 'RFR-2026-0061', date: '2026-08-18', requestedBy: 'فريق التشغيل', tank: 'T-003', tankLabel: 'خزان غاز طبيعي', currentLevel: 480, capacity: 2000, levelPct: 24, quantityNeeded: 1400, quantityUnit: 'م³', supplier: 'ADNOC Gas', scheduledDate: '2026-08-20', status: 'completed', priority: 'high', notes: '', completedDate: '2026-08-20', deliveredQty: 1350 },
-    { id: 'RFR-2026-0042', date: '2026-08-01', requestedBy: 'مدير المبنى', tank: 'T-001', tankLabel: 'خزان LPG 1', currentLevel: 800, capacity: 5000, levelPct: 16, quantityNeeded: 4000, quantityUnit: 'لتر', supplier: 'EMGAS', scheduledDate: '2026-08-05', status: 'completed', priority: 'urgent', notes: 'منخفض جداً', completedDate: '2026-08-05', deliveredQty: 4000 },
-    { id: 'RFR-2026-0028', date: '2026-07-10', requestedBy: 'مدير المبنى', tank: 'T-002', tankLabel: 'خزان LPG 2', currentLevel: 950, capacity: 5000, levelPct: 19, quantityNeeded: 3800, quantityUnit: 'لتر', supplier: 'EMGAS', scheduledDate: '2026-07-12', status: 'completed', priority: 'high', notes: '', completedDate: '2026-07-12', deliveredQty: 3800 },
-    { id: 'RFR-2026-0101', date: '2026-09-18', requestedBy: 'فريق التشغيل', tank: 'T-002', tankLabel: 'خزان LPG 2', currentLevel: 1200, capacity: 5000, levelPct: 24, quantityNeeded: 3500, quantityUnit: 'لتر', supplier: 'EMGAS', scheduledDate: null, status: 'pending', priority: 'high', notes: 'بحاجة تعبئة عاجلة' },
-  ],
+    // Stage 5 (scheduled) — has PO, payment, collection, invoice done; waiting for delivery day
+    { id: 'RFR-2026-0089', stage: 5, status: 'scheduled', priority: 'medium', requestDate: '2026-09-10', requestedBy: 'مدير المبنى', tank: 'T-001', tankLabel: 'خزان LPG 1', currentLevel: 3750, capacity: 5000, levelPct: 75, requestedQty: 1000, quantityUnit: 'لتر', notes: 'تعبئة روتينية',
+      stageData: {
+        po:         { supplier: 'EMGAS', poNumber: 'PO-2026-0089', poDate: '2026-09-11', poQty: 1000, unitPrice: 8.5, totalAmount: 8500 },
+        payment:    { amount: 8500, date: '2026-09-12', method: 'تحويل بنكي', reference: 'TXN-20260912-001' },
+        collection: { tankerPlate: 'أ ب ج 4521 أبوظبي', driverName: 'محمد علي سالم', collectionDate: '2026-09-13', meterBefore: 2000, meterAfter: 3050 },
+        invoice:    { invoiceNumber: 'INV-EMGAS-2026-445', invoiceDate: '2026-09-13', amount: 8500 },
+        schedule:   { deliveryDate: '2026-09-20', deliveryTime: '09:00', civilDefenseConfirmed: true, civilDefenseRef: 'CD-2026-8821' },
+      },
+    },
+    // Stage 1 (PO step) — new request just created, needs PO
+    { id: 'RFR-2026-0101', stage: 1, status: 'requested', priority: 'high', requestDate: '2026-09-18', requestedBy: 'فريق التشغيل', tank: 'T-002', tankLabel: 'خزان LPG 2', currentLevel: 1200, capacity: 5000, levelPct: 24, requestedQty: 3500, quantityUnit: 'لتر', notes: 'بحاجة تعبئة عاجلة', stageData: {} },
+    // Completed
+    { id: 'RFR-2026-0074', stage: 9, status: 'completed', priority: 'high', requestDate: '2026-09-01', requestedBy: 'مدير المبنى', tank: 'T-002', tankLabel: 'خزان LPG 2', currentLevel: 1200, capacity: 5000, levelPct: 24, requestedQty: 3500, quantityUnit: 'لتر', notes: 'مستوى منخفض',
+      completedDate: '2026-09-03', deliveredQty: 3500, newTankLevel: 4700, newLevelPct: 94,
+      stageData: {
+        po:         { supplier: 'EMGAS', poNumber: 'PO-2026-0074', poDate: '2026-09-01', poQty: 3500, unitPrice: 8.5, totalAmount: 29750 },
+        payment:    { amount: 29750, date: '2026-09-02', method: 'تحويل بنكي', reference: 'TXN-20260902-002' },
+        collection: { tankerPlate: 'د ه و 3312 أبوظبي', driverName: 'خالد راشد', collectionDate: '2026-09-02', meterBefore: 500, meterAfter: 4050 },
+        invoice:    { invoiceNumber: 'INV-EMGAS-2026-389', invoiceDate: '2026-09-02', amount: 29750 },
+        schedule:   { deliveryDate: '2026-09-03', deliveryTime: '08:00', civilDefenseConfirmed: true, civilDefenseRef: 'CD-2026-7740' },
+        refill:     { refillDate: '2026-09-03', refillTime: '08:30', tankerPlate: 'د ه و 3312 أبوظبي', driverName: 'خالد راشد', tankMeterBefore: 1200, tankMeterAfter: 4700 },
+        approval:   { approvedBy: 'م. سعيد العامري', approvalDate: '2026-09-03', notes: 'تمت التعبئة بنجاح' },
+      },
+    },
+    { id: 'RFR-2026-0061', stage: 9, status: 'completed', priority: 'high', requestDate: '2026-08-18', requestedBy: 'فريق التشغيل', tank: 'T-003', tankLabel: 'خزان غاز طبيعي', currentLevel: 480, capacity: 2000, levelPct: 24, requestedQty: 1400, quantityUnit: 'م³', notes: '',
+      completedDate: '2026-08-20', deliveredQty: 1350, newTankLevel: 1830, newLevelPct: 92,
+      stageData: {
+        po:         { supplier: 'ADNOC Gas', poNumber: 'PO-2026-0061', poDate: '2026-08-18', poQty: 1400, unitPrice: 4.2, totalAmount: 5880 },
+        payment:    { amount: 5880, date: '2026-08-19', method: 'تحويل بنكي', reference: 'TXN-20260819-003' },
+        collection: { tankerPlate: 'ز ح ط 7781 العين', driverName: 'يوسف ناصر', collectionDate: '2026-08-19', meterBefore: 1000, meterAfter: 2400 },
+        invoice:    { invoiceNumber: 'INV-ADNOC-2026-211', invoiceDate: '2026-08-19', amount: 5670 },
+        schedule:   { deliveryDate: '2026-08-20', deliveryTime: '10:00', civilDefenseConfirmed: true, civilDefenseRef: 'CD-2026-6612' },
+        refill:     { refillDate: '2026-08-20', refillTime: '10:15', tankerPlate: 'ز ح ط 7781 العين', driverName: 'يوسف ناصر', tankMeterBefore: 480, tankMeterAfter: 1830 },
+        approval:   { approvedBy: 'م. سعيد العامري', approvalDate: '2026-08-20' },
+      },
+    },
+    { id: 'RFR-2026-0042', stage: 9, status: 'completed', priority: 'urgent', requestDate: '2026-08-01', requestedBy: 'مدير المبنى', tank: 'T-001', tankLabel: 'خزان LPG 1', currentLevel: 800, capacity: 5000, levelPct: 16, requestedQty: 4000, quantityUnit: 'لتر', notes: 'منخفض جداً',
+      completedDate: '2026-08-05', deliveredQty: 4000, newTankLevel: 4800, newLevelPct: 96,
+      stageData: {
+        po:         { supplier: 'EMGAS', poNumber: 'PO-2026-0042', poDate: '2026-08-01', poQty: 4000, unitPrice: 8.5, totalAmount: 34000 },
+        payment:    { amount: 34000, date: '2026-08-02', method: 'تحويل بنكي', reference: 'TXN-20260802-004' },
+        collection: { tankerPlate: 'أ ب ج 4521 أبوظبي', driverName: 'محمد علي سالم', collectionDate: '2026-08-04', meterBefore: 100, meterAfter: 4150 },
+        invoice:    { invoiceNumber: 'INV-EMGAS-2026-301', invoiceDate: '2026-08-04', amount: 34000 },
+        schedule:   { deliveryDate: '2026-08-05', deliveryTime: '07:30', civilDefenseConfirmed: true, civilDefenseRef: 'CD-2026-5501' },
+        refill:     { refillDate: '2026-08-05', refillTime: '08:00', tankerPlate: 'أ ب ج 4521 أبوظبي', driverName: 'محمد علي سالم', tankMeterBefore: 800, tankMeterAfter: 4800 },
+        approval:   { approvedBy: 'م. سعيد العامري', approvalDate: '2026-08-05' },
+      },
+    },
+    { id: 'RFR-2026-0028', stage: 9, status: 'completed', priority: 'high', requestDate: '2026-07-10', requestedBy: 'مدير المبنى', tank: 'T-002', tankLabel: 'خزان LPG 2', currentLevel: 950, capacity: 5000, levelPct: 19, requestedQty: 3800, quantityUnit: 'لتر', notes: '',
+      completedDate: '2026-07-12', deliveredQty: 3800, newTankLevel: 4750, newLevelPct: 95,
+      stageData: {
+        po:         { supplier: 'EMGAS', poNumber: 'PO-2026-0028', poDate: '2026-07-10', poQty: 3800, unitPrice: 8.5, totalAmount: 32300 },
+        payment:    { amount: 32300, date: '2026-07-11', method: 'شيك', reference: 'CHQ-441221' },
+        collection: { tankerPlate: 'د ه و 3312 أبوظبي', driverName: 'خالد راشد', collectionDate: '2026-07-11', meterBefore: 200, meterAfter: 4050 },
+        invoice:    { invoiceNumber: 'INV-EMGAS-2026-178', invoiceDate: '2026-07-11', amount: 32300 },
+        schedule:   { deliveryDate: '2026-07-12', deliveryTime: '09:00', civilDefenseConfirmed: true, civilDefenseRef: 'CD-2026-4430' },
+        refill:     { refillDate: '2026-07-12', refillTime: '09:20', tankerPlate: 'د ه و 3312 أبوظبي', driverName: 'خالد راشد', tankMeterBefore: 950, tankMeterAfter: 4750 },
+        approval:   { approvedBy: 'م. سعيد العامري', approvalDate: '2026-07-12' },
+      },
+    },
+  ] as RefillRequestItem[],
   activity: [
     { date: '2024-11-20', action: 'فتح طلب خدمة — تسرب في خط الغاز ط3', type: 'warning' },
     { date: '2024-11-01', action: 'إصدار فاتورة الغاز INV-2024-1123 بمبلغ 48,500 د.إ', type: 'info' },
@@ -511,6 +568,10 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
   const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
   const [amcModalOpen, setAmcModalOpen] = useState(false);
   const [amcContracts, setAmcContracts] = useState<any[]>(building.amcContracts ?? []);
+  const [refillRequests, setRefillRequests] = useState<RefillRequestItem[]>((building.refillRequests ?? []) as RefillRequestItem[]);
+  const [refillDrawerOpen, setRefillDrawerOpen] = useState(false);
+  const [selectedRefill, setSelectedRefill] = useState<RefillRequestItem | null>(null);
+  const [newRefillOpen, setNewRefillOpen] = useState(false);
   const occupancyRate = Math.round((building.occupied / building.totalUnits) * 100);
 
   const header = (
@@ -2438,11 +2499,16 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
   );
 
   // ── Refill Requests Tab ────────────────────────────────────────────
-  const refillStatusMap: Record<string, { color: string; label: string; icon: React.ReactNode }> = {
-    pending:   { color: 'orange', label: 'معلق',    icon: <ClockCircleOutlined style={{ color: '#fa8c16' }} /> },
-    approved:  { color: 'blue',   label: 'موافق عليه', icon: <CheckCircleOutlined style={{ color: '#1677ff' }} /> },
-    completed: { color: 'green',  label: 'مكتمل',   icon: <CheckCircleOutlined style={{ color: '#52c41a' }} /> },
-    rejected:  { color: 'red',    label: 'مرفوض',   icon: <ExclamationCircleOutlined style={{ color: '#ff4d4f' }} /> },
+  const refillStatusMap: Record<string, { color: string; label: string }> = {
+    requested:       { color: 'orange',     label: 'طلب مقدم' },
+    po_issued:       { color: 'blue',       label: 'أمر شراء' },
+    paid:            { color: 'cyan',       label: 'تم الدفع' },
+    collecting:      { color: 'purple',     label: 'استلام الغاز' },
+    invoiced:        { color: 'geekblue',   label: 'تم الإفوترة' },
+    scheduled:       { color: 'processing', label: 'مجدول' },
+    delivering:      { color: 'magenta',    label: 'قيد التوصيل' },
+    pending_approval:{ color: 'gold',       label: 'انتظار الموافقة' },
+    completed:       { color: 'green',      label: 'مكتمل' },
   };
   const refillPriorityMap: Record<string, { color: string; label: string }> = {
     low:    { color: 'default', label: 'منخفض' },
@@ -2450,11 +2516,13 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
     high:   { color: 'orange',  label: 'عالي' },
     urgent: { color: 'red',     label: 'عاجل' },
   };
+  const STAGE_LABELS = ['طلب التعبئة','أمر الشراء','الدفع','استلام الغاز','الفاتورة','جدولة','تعبئة الخزان','موافقة الإدارة','مكتمل'];
 
-  const completedRefills = building.refillRequests.filter((r: any) => r.status === 'completed');
-  const pendingRefills   = building.refillRequests.filter((r: any) => r.status === 'pending');
-  const approvedRefills  = building.refillRequests.filter((r: any) => r.status === 'approved');
-  const totalDelivered   = completedRefills.reduce((s: number, r: any) => s + (r.deliveredQty || 0), 0);
+  const completedRefills = refillRequests.filter(r => r.status === 'completed');
+  const activeRefills    = refillRequests.filter(r => r.status !== 'completed');
+  const totalDelivered   = completedRefills.reduce((s, r) => s + (r.deliveredQty || 0), 0);
+
+  const openRefill = (r: RefillRequestItem) => { setSelectedRefill(r); setRefillDrawerOpen(true); };
 
   const refillTab = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -2462,10 +2530,10 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
       {/* Summary Cards */}
       <Row gutter={[12, 12]}>
         {[
-          { label: 'إجمالي الطلبات', value: building.refillRequests.length, color: PRIMARY, bg: '#e8f5e9', icon: <DatabaseOutlined /> },
-          { label: 'معلقة / بانتظار', value: pendingRefills.length + approvedRefills.length, color: '#fa8c16', bg: '#fff7e6', icon: <ClockCircleOutlined /> },
+          { label: 'إجمالي الطلبات', value: refillRequests.length, color: PRIMARY, bg: '#e8f5e9', icon: <DatabaseOutlined /> },
+          { label: 'نشطة / قيد التنفيذ', value: activeRefills.length, color: '#fa8c16', bg: '#fff7e6', icon: <ClockCircleOutlined /> },
           { label: 'مكتملة', value: completedRefills.length, color: '#52c41a', bg: '#f6ffed', icon: <CheckCircleOutlined /> },
-          { label: 'إجمالي الكمية المسلمة', value: `${totalDelivered.toLocaleString()}`, suffix: ' و/م³', color: '#1677ff', bg: '#e6f4ff', icon: <FireOutlined /> },
+          { label: 'إجمالي الكمية المسلمة', value: totalDelivered.toLocaleString(), suffix: ' و/م³', color: '#1677ff', bg: '#e6f4ff', icon: <FireOutlined /> },
         ].map((s: any, i) => (
           <Col xs={12} sm={6} key={i}>
             <Card size="small" bordered={false} style={{ borderRadius: 10, background: s.bg }}>
@@ -2473,9 +2541,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
                 <div style={{ fontSize: 22, color: s.color }}>{s.icon}</div>
                 <div>
                   <div style={{ fontSize: 11, color: '#888' }}>{s.label}</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: s.color }}>
-                    {s.value}{s.suffix || ''}
-                  </div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: s.color }}>{s.value}{s.suffix || ''}</div>
                 </div>
               </div>
             </Card>
@@ -2483,22 +2549,28 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
         ))}
       </Row>
 
-      {/* Active / Pending Requests — highlighted */}
-      {(pendingRefills.length > 0 || approvedRefills.length > 0) && (
+      {/* Active Requests */}
+      {activeRefills.length > 0 && (
         <Card size="small" bordered={false} style={{ borderRadius: 10, border: '1.5px solid #fa8c16', background: '#fffbf0' }}
           title={
             <Space>
               <ExclamationCircleOutlined style={{ color: '#fa8c16' }} />
-              <Text strong style={{ color: '#fa8c16' }}>طلبات نشطة تحتاج متابعة</Text>
-              <Tag color="orange">{pendingRefills.length + approvedRefills.length}</Tag>
+              <Text strong style={{ color: '#fa8c16' }}>طلبات نشطة — اضغط على الطلب لمتابعة مراحله</Text>
+              <Tag color="orange">{activeRefills.length}</Tag>
             </Space>
           }
-          extra={<Button size="small" type="primary" style={{ background: '#fa8c16', borderColor: '#fa8c16' }}>طلب تعبئة جديد</Button>}
+          extra={
+            <Button size="small" type="primary" style={{ background: '#fa8c16', borderColor: '#fa8c16' }}
+              onClick={() => setNewRefillOpen(true)}>
+              + طلب تعبئة جديد
+            </Button>
+          }
         >
           <Table size="small" rowKey="id" pagination={false}
-            dataSource={building.refillRequests.filter((r: any) => r.status !== 'completed' && r.status !== 'rejected')}
+            dataSource={activeRefills}
+            onRow={r => ({ onClick: () => openRefill(r), style: { cursor: 'pointer' } })}
             columns={[
-              { title: 'رقم الطلب', dataIndex: 'id', render: (v: string) => <a style={{ fontSize: 12, color: PRIMARY }}>{v}</a> },
+              { title: 'رقم الطلب', dataIndex: 'id', render: (v: string) => <a style={{ fontSize: 12, color: PRIMARY, fontWeight: 600 }}>{v}</a> },
               { title: 'الخزان', dataIndex: 'tankLabel', render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text> },
               { title: 'المستوى الحالي', dataIndex: 'levelPct', render: (v: number, r: any) => (
                 <div style={{ width: 100 }}>
@@ -2511,11 +2583,21 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
                   </div>
                 </div>
               )},
-              { title: 'الكمية المطلوبة', dataIndex: 'quantityNeeded', render: (v: number, r: any) => <Text style={{ fontSize: 12 }}>{v.toLocaleString()} {r.quantityUnit}</Text> },
+              { title: 'الكمية المطلوبة', dataIndex: 'requestedQty', render: (v: number, r: any) => <Text style={{ fontSize: 12 }}>{v.toLocaleString()} {r.quantityUnit}</Text> },
               { title: 'الأولوية', dataIndex: 'priority', render: (v: string) => <Tag color={refillPriorityMap[v]?.color} style={{ fontSize: 11 }}>{refillPriorityMap[v]?.label}</Tag> },
-              { title: 'الحالة', dataIndex: 'status', render: (v: string) => <Tag color={refillStatusMap[v]?.color} style={{ fontSize: 11 }}>{refillStatusMap[v]?.label}</Tag> },
-              { title: 'الموعد المحدد', dataIndex: 'scheduledDate', render: (v: string) => <Text style={{ fontSize: 12 }}>{v || '—'}</Text> },
-              { title: 'المورد', dataIndex: 'supplier', render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text> },
+              { title: 'المرحلة الحالية', dataIndex: 'stage', render: (v: number) => (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  <Tag color={refillStatusMap[refillRequests.find(r => r.stage === v && activeRefills.includes(r as any))?.status || 'requested']?.color || 'default'} style={{ fontSize: 11 }}>
+                    {STAGE_LABELS[Math.min(v, 8)]}
+                  </Tag>
+                  <div style={{ display: 'flex', gap: 2 }}>
+                    {[0,1,2,3,4,5,6,7,8].map(i => (
+                      <div key={i} style={{ width: 8, height: 4, borderRadius: 2, background: i < v ? '#52c41a' : i === v ? PRIMARY : '#e0e0e0' }} />
+                    ))}
+                  </div>
+                </div>
+              )},
+              { title: 'تاريخ الطلب', dataIndex: 'requestDate', render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text> },
             ]} />
         </Card>
       )}
@@ -2523,23 +2605,28 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
       {/* All Requests History */}
       <Card size="small" bordered={false} style={{ borderRadius: 10 }}
         title={<Text strong><ClockCircleOutlined style={{ marginInlineEnd: 6, color: PRIMARY }} />سجل طلبات التعبئة</Text>}
-        extra={<Button size="small" type="primary" ghost>طلب تعبئة جديد</Button>}
+        extra={
+          <Button size="small" type="primary" ghost onClick={() => setNewRefillOpen(true)}>
+            + طلب تعبئة جديد
+          </Button>
+        }
       >
         <Table size="small" rowKey="id" pagination={{ pageSize: 8, size: 'small' }}
-          dataSource={[...building.refillRequests].sort((a: any, b: any) => b.date.localeCompare(a.date))}
+          dataSource={[...refillRequests].sort((a, b) => b.requestDate.localeCompare(a.requestDate))}
+          onRow={r => ({ onClick: () => openRefill(r), style: { cursor: 'pointer' } })}
           columns={[
-            { title: 'رقم الطلب', dataIndex: 'id', render: (v: string) => <a style={{ fontSize: 12, color: PRIMARY }}>{v}</a> },
-            { title: 'التاريخ', dataIndex: 'date', render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text> },
+            { title: 'رقم الطلب', dataIndex: 'id', render: (v: string) => <a style={{ fontSize: 12, color: PRIMARY, fontWeight: 600 }}>{v}</a> },
+            { title: 'التاريخ', dataIndex: 'requestDate', render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text> },
             { title: 'الخزان', dataIndex: 'tankLabel', render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text> },
-            { title: 'الكمية المطلوبة', dataIndex: 'quantityNeeded', render: (v: number, r: any) => <Text style={{ fontSize: 12 }}>{v.toLocaleString()} {r.quantityUnit}</Text> },
+            { title: 'الكمية المطلوبة', dataIndex: 'requestedQty', render: (v: number, r: any) => <Text style={{ fontSize: 12 }}>{v.toLocaleString()} {r.quantityUnit}</Text> },
             { title: 'الكمية المسلمة', dataIndex: 'deliveredQty', render: (v: number, r: any) => (
               <Text style={{ fontSize: 12, color: v ? '#52c41a' : '#bbb' }}>
                 {v ? `${v.toLocaleString()} ${r.quantityUnit}` : '—'}
               </Text>
             )},
             { title: 'الأولوية', dataIndex: 'priority', render: (v: string) => <Tag color={refillPriorityMap[v]?.color} style={{ fontSize: 11 }}>{refillPriorityMap[v]?.label}</Tag> },
-            { title: 'المورد', dataIndex: 'supplier', render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text> },
-            { title: 'تاريخ التسليم', dataIndex: 'completedDate', render: (v: string) => <Text style={{ fontSize: 12 }}>{v || '—'}</Text> },
+            { title: 'المورد', dataIndex: 'stageData', render: (_: any, r: RefillRequestItem) => <Text style={{ fontSize: 12 }}>{r.stageData?.po?.supplier || '—'}</Text> },
+            { title: 'تاريخ الاكتمال', dataIndex: 'completedDate', render: (v: string) => <Text style={{ fontSize: 12 }}>{v || '—'}</Text> },
             { title: 'الحالة', dataIndex: 'status', render: (v: string) => <Tag color={refillStatusMap[v]?.color} style={{ fontSize: 11 }}>{refillStatusMap[v]?.label}</Tag> },
           ]} />
       </Card>
@@ -2686,6 +2773,31 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
         existingUnitsCount={building.totalUnits}
         onAdd={(units) => {
           console.log('New units to add:', units);
+        }}
+      />
+      <RefillRequestDrawer
+        open={refillDrawerOpen}
+        request={selectedRefill}
+        onClose={() => { setRefillDrawerOpen(false); setSelectedRefill(null); }}
+        onUpdate={(updated) => {
+          setRefillRequests(prev => prev.map(r => r.id === updated.id ? updated : r));
+          setSelectedRefill(updated);
+        }}
+      />
+      <NewRefillRequestModal
+        open={newRefillOpen}
+        onClose={() => setNewRefillOpen(false)}
+        tanks={(building.tanks ?? building.meters?.filter((m: any) => m.type === 'tank') ?? []).map((t: any) => ({
+          id: t.id || t.key,
+          label: t.label || t.name || t.id || t.key,
+          currentLevel: t.currentLevel ?? t.reading ?? 0,
+          capacity: t.capacity ?? 10000,
+          levelPct: t.levelPct ?? Math.round(((t.currentLevel ?? t.reading ?? 0) / (t.capacity ?? 10000)) * 100),
+          unit: t.unit || 'م³',
+        }))}
+        onSave={(req) => {
+          setRefillRequests(prev => [req, ...prev]);
+          setNewRefillOpen(false);
         }}
       />
     </div>
