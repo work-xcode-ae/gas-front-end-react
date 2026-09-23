@@ -1,0 +1,41 @@
+@import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=Inter:wght@400;600;700&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; overflow-x: hidden; width: 100%; }
+body { background: #f5f6fa; }
+#root { overflow-x: hidden; width: 100%; }
+
+/* Ant Design RTL menu items */
+.ant-menu-item { display: flex !important; align-items: center !important; gap: 8px; }
+.ant-menu-dark .ant-menu-item:hover { background: rgba(255,255,255,0.1) !important; }
+.ant-menu-dark .ant-menu-item { color: rgba(255,255,255,0.75) !important; }
+.ant-table-thead > tr > th { background: #f8f9fa !important; font-weight: 600; }
+
+/* Sidebar menu selected item — gold highlight */
+.ant-menu-dark .ant-menu-item-selected {
+  background: linear-gradient(90deg, rgba(201,168,76,0.3) 0%, rgba(201,168,76,0.1) 100%) !important;
+  border-inline-start: 4px solid #c9a84c !important;
+  color: #c9a84c !important;
+}
+.ant-menu-dark .ant-menu-item-selected .ant-menu-item-icon,
+.ant-menu-dark .ant-menu-item-selected .ant-menu-title-content {
+  color: #c9a84c !important;
+}
+.ant-menu-dark.ant-menu-inline .ant-menu-item {
+  padding-inline-start: 20px !important;
+}
+
+/* Prevent horizontal scroll from Ant Design Layout */
+.ant-layout { overflow-x: hidden !important; }
+.ant-layout-content { overflow-x: hidden; }
+
+/* DatePicker — Arabic day name headers: clip to 2 chars to avoid overlap */
+.ant-picker-content th {
+  font-size: 11px !important;
+  overflow: hidden !important;
+  max-width: 32px !important;
+  white-space: nowrap !important;
+  text-overflow: clip !important;
+  padding: 0 !important;
+  text-align: center !important;
+}

@@ -1,0 +1,98 @@
+{
+  "appName": "Bin Sidra Gas Management System",
+  "welcome": "Welcome to Bin Sidra Gas Management System",
+  "tagline": "Integrated Management .. Serving You Better",
+  "nav": {
+    "home": "Dashboard",
+    "buildings": "Buildings",
+    "apartments": "Apartments & Units",
+    "customers": "Customers & Tenants",
+    "gasContracts": "Gas Supply Contracts",
+    "maintenanceContracts": "Maintenance Contracts",
+    "meters": "Meters & Readings",
+    "invoices": "Invoices",
+    "payments": "Collection & Payments",
+    "overdue": "Overdue",
+    "serviceRequests": "Service Requests",
+    "maintenance": "Maintenance & Emergencies",
+    "reports": "Reports",
+    "users": "User Management",
+    "settings": "Settings"
+  },
+  "kpi": {
+    "buildings": "Buildings",
+    "apartments": "Apartments",
+    "activeCustomers": "Active Customers",
+    "totalInvoices": "Total Invoices",
+    "collected": "Collected Amount",
+    "overdue": "Overdue"
+  },
+  "charts": {
+    "revenueTitle": "Gas Revenue - Last 6 Months",
+    "invoicesTitle": "Invoices vs Collections",
+    "contractsTitle": "Contract Status",
+    "invoices": "Invoices",
+    "collected": "Collected"
+  },
+  "contracts": {
+    "active": "Active",
+    "expiringSoon": "Expiring Soon",
+    "expired": "Expired",
+    "suspended": "Suspended",
+    "total": "Total Contracts"
+  },
+  "tables": {
+    "recentInvoices": "Recent Invoices",
+    "recentReadings": "Recent Meter Readings",
+    "serviceRequests": "Service & Maintenance Requests",
+    "viewAll": "View All",
+    "invoiceNo": "Invoice No.",
+    "customer": "Customer",
+    "building": "Building / Unit",
+    "amount": "Amount",
+    "status": "Status",
+    "date": "Date",
+    "currentReading": "Current Reading",
+    "previousReading": "Previous Reading",
+    "consumption": "Consumption",
+    "requestNo": "Request No.",
+    "type": "Type",
+    "location": "Location",
+    "paid": "Paid",
+    "unpaid": "Unpaid",
+    "late": "Overdue",
+    "new": "New",
+    "inProgress": "In Progress",
+    "completed": "Completed",
+    "suspended": "Suspended"
+  },
+  "quickActions": {
+    "title": "Quick Actions",
+    "newInvoice": "Issue Invoice",
+    "meterReading": "Record Meter Reading",
+    "newCustomer": "Add New Customer",
+    "newMaintenance": "Add Maintenance Contract",
+    "newGasContract": "Add Gas Contract",
+    "newBuilding": "Add New Building"
+  },
+  "notifications": {
+    "title": "Important Alerts",
+    "expiringContracts": "contracts expiring within 30 days",
+    "overdueInvoices": "overdue invoices",
+    "unreadMeters": "unread meter readings",
+    "newServiceRequests": "new maintenance requests"
+  },
+  "support": {
+    "title": "Technical Support",
+    "phone": "800 2673",
+    "service": "Customer Service 24/7"
+  },
+  "months": {
+    "nov": "Nov",
+    "dec": "Dec",
+    "jan": "Jan",
+    "feb": "Feb",
+    "mar": "Mar",
+    "apr": "Apr"
+  }
+}

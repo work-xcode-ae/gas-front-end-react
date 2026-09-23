@@ -1,0 +1,98 @@
+{
+  "appName": "نظام بن سدرة لإدارة الغاز",
+  "welcome": "مرحباً بك في نظام بن سدرة لإدارة الغاز",
+  "tagline": "إدارة متكاملة .. لخدمتكم بشكل أفضل",
+  "nav": {
+    "home": "الرئيسية",
+    "buildings": "المباني",
+    "apartments": "الشقق والوحدات",
+    "customers": "العملاء والمستأجرون",
+    "gasContracts": "عقود تزويد الغاز",
+    "maintenanceContracts": "عقود الصيانة",
+    "meters": "العدادات والقراءات",
+    "invoices": "الفواتير",
+    "payments": "التحصيل والمدفوعات",
+    "overdue": "المتأخرات",
+    "serviceRequests": "طلبات الخدمة",
+    "maintenance": "الصيانة والطوارئ",
+    "reports": "التقارير",
+    "users": "إدارة المستخدمين",
+    "settings": "الإعدادات"
+  },
+  "kpi": {
+    "buildings": "عدد المباني",
+    "apartments": "عدد الشقق",
+    "activeCustomers": "العملاء النشطين",
+    "totalInvoices": "إجمالي الفواتير",
+    "collected": "المبالغ المحصلة",
+    "overdue": "المتأخرات"
+  },
+  "charts": {
+    "revenueTitle": "إيرادات الغاز خلال آخر 6 أشهر",
+    "invoicesTitle": "عدد الفواتير مقابل التحصيل",
+    "contractsTitle": "حالة العقود",
+    "invoices": "الفواتير",
+    "collected": "المحصلة"
+  },
+  "contracts": {
+    "active": "سارية",
+    "expiringSoon": "تنتهي قريباً",
+    "expired": "منتهية",
+    "suspended": "معلقة",
+    "total": "إجمالي العقود"
+  },
+  "tables": {
+    "recentInvoices": "أحدث الفواتير",
+    "recentReadings": "القراءات الأخيرة للعدادات",
+    "serviceRequests": "طلبات الخدمة والصيانة",
+    "viewAll": "عرض الكل",
+    "invoiceNo": "رقم الفاتورة",
+    "customer": "العميل",
+    "building": "المبنى / الشقة",
+    "amount": "المبلغ",
+    "status": "الحالة",
+    "date": "التاريخ",
+    "currentReading": "القراءة الحالية",
+    "previousReading": "القراءة السابقة",
+    "consumption": "الاستهلاك",
+    "requestNo": "رقم الطلب",
+    "type": "النوع",
+    "location": "الموقع",
+    "paid": "مدفوعة",
+    "unpaid": "غير مدفوعة",
+    "late": "متأخرة",
+    "new": "جديد",
+    "inProgress": "قيد التنفيذ",
+    "completed": "مكتمل",
+    "suspended": "معلق"
+  },
+  "quickActions": {
+    "title": "إجراءات سريعة",
+    "newInvoice": "إصدار فاتورة",
+    "meterReading": "تسجيل قراءة عداد",
+    "newCustomer": "إضافة عميل جديد",
+    "newMaintenance": "إضافة عقد صيانة",
+    "newGasContract": "إضافة عقد غاز",
+    "newBuilding": "إضافة مبنى جديد"
+  },
+  "notifications": {
+    "title": "تنبيهات مهمة",
+    "expiringContracts": "عقد ستنتهي خلال 30 يوم",
+    "overdueInvoices": "فاتورة متأخرة السداد",
+    "unreadMeters": "قراءة عدادات غير مسجلة",
+    "newServiceRequests": "طلبات صيانة جديدة"
+  },
+  "support": {
+    "title": "الدعم الفني",
+    "phone": "800 2673",
+    "service": "خدمة العملاء 24/7"
+  },
+  "months": {
+    "nov": "نوفمبر",
+    "dec": "ديسمبر",
+    "jan": "يناير",
+    "feb": "فبراير",
+    "mar": "مارس",
+    "apr": "أبريل"
+  }
+}
