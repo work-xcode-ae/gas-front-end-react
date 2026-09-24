@@ -21,6 +21,9 @@ import MaintenancePage from './pages/Maintenance';
 import ReportsPage from './pages/Reports';
 import UsersPage from './pages/Users';
 import SettingsPage from './pages/Settings';
+import VehiclesPage from './pages/Vehicles';
+import EmployeesPage from './pages/Employees';
+import AssetsPage from './pages/Assets';
 
 const AppContent: React.FC = () => {
   const { i18n } = useTranslation();
@@ -56,6 +59,9 @@ const AppContent: React.FC = () => {
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/users" element={<UsersPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/vehicles" element={<VehiclesPage />} />
+            <Route path="/employees" element={<EmployeesPage />} />
+            <Route path="/assets" element={<AssetsPage />} />
           </Routes>
         </AppLayout>
       </BrowserRouter>

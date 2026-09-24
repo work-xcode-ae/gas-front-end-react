@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Layout, Menu, Button, Badge, Avatar, Input, Select, DatePicker, Space, Dropdown } from 'antd';
 import {
   HomeOutlined, BankOutlined, AppstoreOutlined, TeamOutlined,
-  FileTextOutlined, ToolOutlined, DashboardOutlined, FileDoneOutlined,
+  FileTextOutlined, ToolOutlined, DashboardOutlined, FileDoneOutlined, CarOutlined,
   DollarOutlined, WarningOutlined, CustomerServiceOutlined, ThunderboltOutlined,
   BarChartOutlined, UserOutlined, SettingOutlined, BellOutlined,
   GlobalOutlined, PlusOutlined, SearchOutlined, CalendarOutlined, RightOutlined
@@ -92,6 +92,9 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     { key: '/maintenance', icon: <ThunderboltOutlined />, label: t('nav.maintenance') },
     { key: '/reports', icon: <BarChartOutlined />, label: t('nav.reports') },
     { key: '/users', icon: <UserOutlined />, label: t('nav.users') },
+    { key: '/vehicles', icon: <CarOutlined />, label: 'إدارة المركبات' },
+    { key: '/employees', icon: <TeamOutlined />, label: 'الموظفون' },
+    { key: '/assets', icon: <AppstoreOutlined />, label: 'إدارة الأصول' },
     { key: '/settings', icon: <SettingOutlined />, label: t('nav.settings') },
   ];
 
