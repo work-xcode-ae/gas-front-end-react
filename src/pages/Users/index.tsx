@@ -10,7 +10,7 @@ import {
   EditOutlined, DeleteOutlined, KeyOutlined, SafetyCertificateOutlined,
   CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined,
   TeamOutlined, SettingOutlined, EyeOutlined, PrinterOutlined,
-  HistoryOutlined, ShieldOutlined, LoginOutlined, LogoutOutlined,
+  HistoryOutlined, SafetyOutlined, LoginOutlined, LogoutOutlined,
   MailOutlined, PhoneOutlined, BankOutlined, CalendarOutlined,
 } from '@ant-design/icons';
 
@@ -545,7 +545,7 @@ const UsersPage: React.FC = () => {
           { label:'غير نشط', value:inactive, icon:<ClockCircleOutlined/>, color:'#999' },
           { label:'مقفل', value:locked, icon:<LockOutlined/>, color:'#ff4d4f' },
           { label:'قيد التفعيل', value:pending, icon:<ClockCircleOutlined/>, color:'#fa8c16' },
-          { label:'مديرون', value:admins, icon:<ShieldOutlined/>, color:'#722ed1' },
+          { label:'مديرون', value:admins, icon:<SafetyOutlined/>, color:'#722ed1' },
           { label:'2FA مفعل', value:with2FA, icon:<SafetyCertificateOutlined/>, color:'#13c2c2' },
           { label:'عدد الأدوار', value:ROLES.length, icon:<KeyOutlined/>, color:GOLD },
         ].map((s,i)=>(
