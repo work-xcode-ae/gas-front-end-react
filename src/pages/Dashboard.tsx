@@ -1,3 +1,4 @@
+import KpiCard from '../components/KpiCard';
 import React, { useEffect, useState } from 'react';
 import { Row, Col, Card, Table, Tag, Button, Typography, Space, List, Badge , Skeleton } from 'antd';
 import {
@@ -6,6 +7,7 @@ import {
   DashboardOutlined, UserAddOutlined, ToolOutlined, PlusCircleOutlined,
   BellOutlined, FireOutlined, DatabaseOutlined, CheckCircleOutlined, ClockCircleOutlined
 } from '@ant-design/icons';
+import KpiCard from '../components/KpiCard';
 import ReactApexChart from 'react-apexcharts';
 import { useTranslation } from 'react-i18next';
 import { getDashboardStats, getRecentInvoices, getRecentMeterReadings, getRecentServiceRequests, getRefillRequests } from '../api/dashboard';
@@ -234,27 +236,16 @@ const Dashboard: React.FC = () => {
       <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
         {kpis.map((k, i) => (
           <Col xs={24} sm={12} md={8} lg={4} key={i}>
-            <Card style={{ borderRadius: 12, boxShadow: '0 2px 8px rgba(0,0,0,0.06)', border: 'none' }} bodyStyle={{ padding: '16px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ width: 44, height: 44, borderRadius: 10, background: k.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: k.color, flexShrink: 0 }}>
-                  {k.icon}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>{k.title}</div>
-                  {dataLoading ? (
-                    <div style={{ marginTop: 4 }}>
-                      <Skeleton.Button active size="small" style={{ width: 80, height: 22, borderRadius: 4 }} />
-                    </div>
-                  ) : (
-                    <div style={{ fontSize: 20, fontWeight: 700, color: k.color, lineHeight: 1.2 }}>
-                      {k.prefix && <span style={{ fontSize: 11, marginInlineEnd: 2 }}>{k.prefix}</span>}
-                      {typeof k.value === 'number' ? k.value.toLocaleString() : k.value}
-                    </div>
-                  )}
-                  {k.suffix && !dataLoading && <div style={{ fontSize: 11, color: '#aaa' }}>{k.suffix}</div>}
-                </div>
-              </div>
-            </Card>
+            <KpiCard
+              title={k.title}
+              value={k.value}
+              prefix={k.prefix}
+              suffix={k.suffix}
+              icon={k.icon}
+              color={k.color}
+              bg={k.bg}
+              loading={dataLoading}
+            />
           </Col>
         ))}
       </Row>

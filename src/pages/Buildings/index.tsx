@@ -1,3 +1,4 @@
+import KpiCard from '../../components/KpiCard';
 import React, { useState, useEffect } from 'react';
 import { getBuildings, getBuildingUnits, getAmcContracts, getBuildingStats } from '../../api/buildings';
 import type { Building, BuildingUnit, AmcContract, BuildingStats } from '../../api/buildings';
@@ -12,6 +13,7 @@ import {
   EnvironmentOutlined, HomeOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
   NumberOutlined, ApartmentOutlined, FileTextOutlined, ShopOutlined, UserOutlined, PhoneOutlined, MailOutlined, IdcardOutlined, SafetyCertificateOutlined, UploadOutlined, BuildOutlined, StarFilled, StarOutlined, DatabaseOutlined, CalendarOutlined, UsergroupAddOutlined
 } from '@ant-design/icons';
+import KpiCard from '../../components/KpiCard';
 import ReactApexChart from 'react-apexcharts';
 
 const { Title, Text } = Typography;
@@ -324,24 +326,17 @@ const Buildings: React.FC = () => {
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         {kpis.map((k, i) => (
           <Col xs={24} sm={12} md={6} key={i}>
-            <Card style={{ borderRadius: 14, border: 'none', boxShadow: '0 1px 6px rgba(0,0,0,0.07)' }} styles={{ body: { padding: '18px 20px' } }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <Text style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 6 }}>{k.title}</Text>
-                  {dataLoading ? (
-                    <Skeleton.Button active size="small" style={{ width: 80, height: 28, borderRadius: 4, marginTop: 2 }} />
-                  ) : (
-                    <div style={{ fontSize: 28, fontWeight: 800, color: k.color, lineHeight: 1.1 }}>{k.value.toLocaleString()}</div>
-                  )}
-                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    {k.trend > 0 ? <ArrowUpOutlined style={{ color: '#52c41a', fontSize: 11 }} /> : <ArrowDownOutlined style={{ color: '#ff4d4f', fontSize: 11 }} />}
-                    <Text style={{ fontSize: 11, color: k.trend > 0 ? '#52c41a' : '#ff4d4f', fontWeight: 600 }}>{Math.abs(k.trend)}%</Text>
-                    <Text type="secondary" style={{ fontSize: 11 }}>{k.sub}</Text>
-                  </div>
-                </div>
-                <div style={{ width: 46, height: 46, borderRadius: 12, background: k.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, color: k.color }}>{k.icon}</div>
-              </div>
-            </Card>
+            <KpiCard
+              title={k.title}
+              value={k.value}
+              prefix={k.prefix}
+              suffix={k.suffix}
+              sub={k.sub}
+              icon={k.icon}
+              color={k.color}
+              bg={k.bg}
+              loading={dataLoading}
+            />
           </Col>
         ))}
       </Row>
