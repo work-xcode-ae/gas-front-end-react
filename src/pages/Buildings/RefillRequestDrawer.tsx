@@ -18,7 +18,7 @@ const GOLD    = '#c9a84c';
 export interface RefillStageData {
   po?: { supplier: string; poNumber: string; poDate: string; poQty: number; unitPrice: number; totalAmount: number; supplierContact?: string; };
   payment?: { amount: number; date: string; method: string; reference: string; };
-  collection?: { tankerPlate: string; driverName: string; collectionDate: string; meterBefore: number; meterAfter: number; };
+  collection?: { tankerPlate: string; driverName: string; driverPhone?: string; vehicleId?: string; collectionDate: string; meterBefore: number; meterAfter: number; };
   invoice?: { invoiceNumber: string; invoiceDate: string; amount: number; };
   schedule?: { deliveryDate: string; deliveryTime: string; civilDefenseConfirmed: boolean; civilDefenseRef?: string; };
   refill?: { refillDate: string; refillTime: string; tankMeterBefore: number; tankMeterAfter: number; driverName: string; tankerPlate: string; };
@@ -74,7 +74,16 @@ export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, o
       const newSd: RefillStageData = { ...sd };
       if (cur === 1) newSd.po = vals;
       if (cur === 2) newSd.payment = vals;
-      if (cur === 3) newSd.collection = vals;
+      if (cur === 3) {
+        const vehicle = FLEET_VEHICLES.find(v => v.id === vals.vehicleId);
+        newSd.collection = {
+          ...vals,
+          tankerPlate: vals.tankerPlate || vehicle?.plate || '',
+          driverName: vals.driverName || vehicle?.driver || '',
+          driverPhone: vals.driverPhone || vehicle?.driverPhone || '',
+          vehicleId: vals.vehicleId,
+        };
+      }
       if (cur === 4) newSd.invoice = vals;
       if (cur === 5) newSd.schedule = vals;
       if (cur === 6) newSd.refill = vals;
@@ -130,16 +139,32 @@ export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, o
         <Descriptions.Item label="رقم المرجع">{sd.payment.reference}</Descriptions.Item>
       </Descriptions>
     );
-    if (idx === 3 && sd.collection) return (
-      <Descriptions size="small" column={2} style={{ direction: 'rtl' }}>
-        <Descriptions.Item label="لوحة الصهريج">{sd.collection.tankerPlate}</Descriptions.Item>
-        <Descriptions.Item label="السائق">{sd.collection.driverName}</Descriptions.Item>
-        <Descriptions.Item label="تاريخ الاستلام">{sd.collection.collectionDate}</Descriptions.Item>
-        <Descriptions.Item label="الكمية المستلمة"><Text style={{ color: '#fa8c16', fontWeight: 700 }}>{(sd.collection.meterAfter - sd.collection.meterBefore).toLocaleString()} {request.quantityUnit}</Text></Descriptions.Item>
-        <Descriptions.Item label="عداد الصهريج قبل">{sd.collection.meterBefore.toLocaleString()}</Descriptions.Item>
-        <Descriptions.Item label="عداد الصهريج بعد">{sd.collection.meterAfter.toLocaleString()}</Descriptions.Item>
-      </Descriptions>
-    );
+    if (idx === 3 && sd.collection) {
+      const fleet = FLEET_VEHICLES.find(v => v.id === sd.collection!.vehicleId);
+      return (
+        <div>
+          {fleet && (
+            <div style={{ marginBottom: 12, padding: '8px 12px', background: '#e8f5e9', borderRadius: 8, border: '1.5px solid #b7eb8f', display: 'flex', alignItems: 'center', gap: 10 }}>
+              <CarOutlined style={{ color: PRIMARY, fontSize: 18 }} />
+              <div>
+                <Text strong style={{ color: PRIMARY }}>{fleet.plate}</Text>
+                <Text style={{ marginRight: 8, fontSize: 12 }}>{fleet.type} — {fleet.capacity.toLocaleString()} {fleet.unit}</Text>
+              </div>
+              <Tag color="green" style={{ marginRight: 'auto' }}>من الأسطول</Tag>
+            </div>
+          )}
+          <Descriptions size="small" column={2} style={{ direction: 'rtl' }}>
+            <Descriptions.Item label="لوحة الصهريج">{sd.collection.tankerPlate}</Descriptions.Item>
+            <Descriptions.Item label="السائق">{sd.collection.driverName}</Descriptions.Item>
+            {sd.collection.driverPhone && <Descriptions.Item label="هاتف السائق">{sd.collection.driverPhone}</Descriptions.Item>}
+            <Descriptions.Item label="تاريخ الاستلام">{sd.collection.collectionDate}</Descriptions.Item>
+            <Descriptions.Item label="الكمية المستلمة"><Text style={{ color: '#fa8c16', fontWeight: 700 }}>{(sd.collection.meterAfter - sd.collection.meterBefore).toLocaleString()} {request.quantityUnit}</Text></Descriptions.Item>
+            <Descriptions.Item label="عداد الصهريج قبل">{sd.collection.meterBefore.toLocaleString()}</Descriptions.Item>
+            <Descriptions.Item label="عداد الصهريج بعد">{sd.collection.meterAfter.toLocaleString()}</Descriptions.Item>
+          </Descriptions>
+        </div>
+      );
+    }
     if (idx === 4 && sd.invoice) return (
       <Descriptions size="small" column={2} style={{ direction: 'rtl' }}>
         <Descriptions.Item label="رقم الفاتورة">{sd.invoice.invoiceNumber}</Descriptions.Item>
@@ -235,10 +260,32 @@ export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, o
     if (idx === 3) return (
       <Form form={form} layout="vertical" size="small">
         <Row gutter={12}>
-          <Col span={12}><Form.Item name="tankerPlate" label="لوحة الصهريج" rules={[{ required: true, message: '' }]}><Input /></Form.Item></Col>
-          <Col span={12}><Form.Item name="driverName" label="اسم السائق" rules={[{ required: true, message: '' }]}><Input /></Form.Item></Col>
+          <Col span={24}>
+            <Form.Item name="vehicleId" label="اختر الصهريج / المركبة" rules={[{ required: true, message: 'اختر المركبة' }]}>
+              <Select
+                placeholder="اختر من أسطول المركبات..."
+                onChange={(val) => {
+                  const v = FLEET_VEHICLES.find(x => x.id === val);
+                  if (v) form.setFieldsValue({ tankerPlate: v.plate, driverName: v.driver, driverPhone: v.driverPhone });
+                }}
+              >
+                {FLEET_VEHICLES.map(v => (
+                  <Option key={v.id} value={v.id} disabled={v.status !== 'active'}>
+                    <Space>
+                      <CarOutlined style={{ color: v.status === 'active' ? '#1a5c2a' : '#aaa' }} />
+                      <span style={{ fontWeight: 600 }}>{v.plate}</span>
+                      <span style={{ color: '#888', fontSize: 12 }}>{v.type} — {v.capacity.toLocaleString()} {v.unit}</span>
+                      {v.status !== 'active' && <Tag color="orange" style={{ fontSize: 10 }}>تحت الصيانة</Tag>}
+                    </Space>
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </Col>
+          <Col span={12}><Form.Item name="tankerPlate" label="لوحة الصهريج" rules={[{ required: true, message: '' }]}><Input placeholder="تعبئة تلقائياً عند الاختيار" /></Form.Item></Col>
+          <Col span={12}><Form.Item name="driverName" label="اسم السائق" rules={[{ required: true, message: '' }]}><Input placeholder="تعبئة تلقائياً عند الاختيار" /></Form.Item></Col>
+          <Col span={12}><Form.Item name="driverPhone" label="هاتف السائق"><Input /></Form.Item></Col>
           <Col span={12}><Form.Item name="collectionDate" label="تاريخ الاستلام" rules={[{ required: true, message: '' }]}><Input type="date" /></Form.Item></Col>
-          <Col span={12}></Col>
           <Col span={12}><Form.Item name="meterBefore" label="قراءة عداد الصهريج قبل" rules={[{ required: true, message: '' }]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
           <Col span={12}><Form.Item name="meterAfter" label="قراءة عداد الصهريج بعد" rules={[{ required: true, message: '' }]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
         </Row>
