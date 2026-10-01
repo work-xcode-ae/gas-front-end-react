@@ -1,11 +1,13 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { ConfigProvider } from 'antd';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { ConfigProvider, Spin } from 'antd';
 import arEG from 'antd/locale/ar_EG';
 import enUS from 'antd/locale/en_US';
 import { useTranslation } from 'react-i18next';
 import './i18n';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import AppLayout from './components/layout/AppLayout';
+import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Buildings from './pages/Buildings';
 import ApartmentsPage from './pages/Apartments';
@@ -25,6 +27,46 @@ import VehiclesPage from './pages/Vehicles';
 import EmployeesPage from './pages/Employees';
 import AssetsPage from './pages/Assets';
 
+const AppRoutes: React.FC = () => {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Spin size="large" />
+      </div>
+    );
+  }
+
+  if (!user) return <Login />;
+
+  return (
+    <AppLayout>
+      <Routes>
+        <Route path="/" element={<Dashboard />} />
+        <Route path="/buildings" element={<Buildings />} />
+        <Route path="/apartments" element={<ApartmentsPage />} />
+        <Route path="/customers" element={<CustomersPage />} />
+        <Route path="/gas-contracts" element={<GasContractsPage />} />
+        <Route path="/maintenance-contracts" element={<MaintenanceContractsPage />} />
+        <Route path="/meters" element={<MetersPage />} />
+        <Route path="/invoices" element={<InvoicesPage />} />
+        <Route path="/payments" element={<PaymentsPage />} />
+        <Route path="/overdue" element={<OverduePage />} />
+        <Route path="/service-requests" element={<ServiceRequestsPage />} />
+        <Route path="/maintenance" element={<MaintenancePage />} />
+        <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/users" element={<UsersPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/vehicles" element={<VehiclesPage />} />
+        <Route path="/employees" element={<EmployeesPage />} />
+        <Route path="/assets" element={<AssetsPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </AppLayout>
+  );
+};
+
 const AppContent: React.FC = () => {
   const { i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
@@ -42,28 +84,7 @@ const AppContent: React.FC = () => {
       }}
     >
       <BrowserRouter>
-        <AppLayout>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/buildings" element={<Buildings />} />
-            <Route path="/apartments" element={<ApartmentsPage />} />
-            <Route path="/customers" element={<CustomersPage />} />
-            <Route path="/gas-contracts" element={<GasContractsPage />} />
-            <Route path="/maintenance-contracts" element={<MaintenanceContractsPage />} />
-            <Route path="/meters" element={<MetersPage />} />
-            <Route path="/invoices" element={<InvoicesPage />} />
-            <Route path="/payments" element={<PaymentsPage />} />
-            <Route path="/overdue" element={<OverduePage />} />
-            <Route path="/service-requests" element={<ServiceRequestsPage />} />
-            <Route path="/maintenance" element={<MaintenancePage />} />
-            <Route path="/reports" element={<ReportsPage />} />
-            <Route path="/users" element={<UsersPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="/vehicles" element={<VehiclesPage />} />
-            <Route path="/employees" element={<EmployeesPage />} />
-            <Route path="/assets" element={<AssetsPage />} />
-          </Routes>
-        </AppLayout>
+        <AppRoutes />
       </BrowserRouter>
     </ConfigProvider>
   );
@@ -74,7 +95,12 @@ const App: React.FC = () => {
     document.documentElement.dir = 'rtl';
     document.documentElement.lang = 'ar';
   }, []);
-  return <AppContent />;
+
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
 };
 
 export default App;
