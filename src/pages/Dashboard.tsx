@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Row, Col, Card, Table, Tag, Button, Typography, Space, List, Badge } from 'antd';
 import {
   BankOutlined, AppstoreOutlined, TeamOutlined, FileDoneOutlined,
@@ -8,11 +8,40 @@ import {
 } from '@ant-design/icons';
 import ReactApexChart from 'react-apexcharts';
 import { useTranslation } from 'react-i18next';
+import { getDashboardStats, getRecentInvoices, getRecentMeterReadings, getRecentServiceRequests, getRefillRequests } from '../api/dashboard';
+import type { DashboardStats } from '../api/dashboard';
 
 const { Text } = Typography;
 
 const Dashboard: React.FC = () => {
   const { t, i18n } = useTranslation();
+
+  // ── Live Frappe data ──────────────────────────────────────────────
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [liveInvoices, setLiveInvoices] = useState<any[]>([]);
+  const [liveMeterReadings, setLiveMeterReadings] = useState<any[]>([]);
+  const [liveServiceRequests, setLiveServiceRequests] = useState<any[]>([]);
+  const [liveRefills, setLiveRefills] = useState<any[]>([]);
+  const [dataLoading, setDataLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      getDashboardStats(),
+      getRecentInvoices(5),
+      getRecentMeterReadings(5),
+      getRecentServiceRequests(5),
+      getRefillRequests(5),
+    ])
+      .then(([s, inv, meter, svc, rfr]) => {
+        setStats(s);
+        if (inv.length) setLiveInvoices(inv);
+        if (meter.length) setLiveMeterReadings(meter);
+        if (svc.length) setLiveServiceRequests(svc);
+        if (rfr.length) setLiveRefills(rfr);
+      })
+      .catch(console.error)
+      .finally(() => setDataLoading(false));
+  }, []);
   const isRTL = i18n.language === 'ar';
 
   const revenueChart = {
@@ -70,13 +99,22 @@ const Dashboard: React.FC = () => {
     }},
   ];
 
-  const invoiceData = [
+  const invoiceData = liveInvoices.length > 0
+    ? liveInvoices.map((inv, i) => ({
+        key: i + 1,
+        no: inv.name,
+        customer: inv.customer,
+        building: inv.building || '—',
+        amount: inv.grand_total,
+        status: inv.status === 'Paid' ? 'paid' : inv.status === 'Overdue' ? 'late' : 'unpaid',
+      }))
+    : [
     { key: 1, no: 'INV-2025-001', customer: isRTL ? 'سالم علي' : 'Salem Ali', building: isRTL ? 'مبنى 12 شقة 3' : 'Bldg 12 Unit 3', amount: 450, status: 'paid' },
     { key: 2, no: 'INV-2025-002', customer: isRTL ? 'أحمد خميس' : 'Ahmed Khamis', building: isRTL ? 'مبنى 5 شقة 1' : 'Bldg 5 Unit 1', amount: 320, status: 'unpaid' },
     { key: 3, no: 'INV-2025-003', customer: isRTL ? 'فاطمة النعيمي' : 'Fatima Al Nuaimi', building: isRTL ? 'مبنى 8 شقة 12' : 'Bldg 8 Unit 12', amount: 280, status: 'paid' },
     { key: 4, no: 'INV-2025-004', customer: isRTL ? 'محمد راشد' : 'Mohammed Rashed', building: isRTL ? 'مبنى 21 شقة 5' : 'Bldg 21 Unit 5', amount: 510, status: 'late' },
     { key: 5, no: 'INV-2025-005', customer: isRTL ? 'خالد البلوشي' : 'Khalid Al Balushi', building: isRTL ? 'مبنى 3 شقة 2' : 'Bldg 3 Unit 2', amount: 390, status: 'paid' },
-  ];
+    ];
 
   const meterColumns = [
     { title: t('tables.date'), dataIndex: 'date', key: 'date' },
@@ -118,12 +156,12 @@ const Dashboard: React.FC = () => {
   ];
 
   const kpis = [
-    { title: t('kpi.buildings'), value: 186, suffix: isRTL ? 'مبنى' : '', icon: <BankOutlined />, color: '#1a5c2a', bg: '#e8f5e9' },
-    { title: t('kpi.apartments'), value: 2356, suffix: isRTL ? 'شقة' : '', icon: <AppstoreOutlined />, color: '#1565c0', bg: '#e3f2fd' },
-    { title: t('kpi.activeCustomers'), value: 1248, suffix: isRTL ? 'عميل' : '', icon: <TeamOutlined />, color: '#6a1b9a', bg: '#f3e5f5' },
-    { title: t('kpi.totalInvoices'), value: 528000, prefix: isRTL ? 'د.إ' : 'AED', suffix: '+8%', icon: <FileDoneOutlined />, color: '#00695c', bg: '#e0f2f1' },
-    { title: t('kpi.collected'), value: 342580, prefix: isRTL ? 'د.إ' : 'AED', suffix: '+12%', icon: <DollarOutlined />, color: '#c9a84c', bg: '#fff8e1' },
-    { title: t('kpi.overdue'), value: 185420, prefix: isRTL ? 'د.إ' : 'AED', suffix: isRTL ? '214 عميل' : '214 clients', icon: <WarningOutlined />, color: '#c62828', bg: '#ffebee' },
+    { title: t('kpi.buildings'), value: stats?.buildings ?? 186, suffix: isRTL ? 'مبنى' : '', icon: <BankOutlined />, color: '#1a5c2a', bg: '#e8f5e9' },
+    { title: t('kpi.apartments'), value: stats?.apartments ?? 2356, suffix: isRTL ? 'شقة' : '', icon: <AppstoreOutlined />, color: '#1565c0', bg: '#e3f2fd' },
+    { title: t('kpi.activeCustomers'), value: stats?.activeCustomers ?? 1248, suffix: isRTL ? 'عميل' : '', icon: <TeamOutlined />, color: '#6a1b9a', bg: '#f3e5f5' },
+    { title: t('kpi.totalInvoices'), value: stats?.totalInvoices ?? 528000, prefix: isRTL ? 'د.إ' : 'AED', suffix: '+8%', icon: <FileDoneOutlined />, color: '#00695c', bg: '#e0f2f1' },
+    { title: t('kpi.collected'), value: stats?.collected ?? 342580, prefix: isRTL ? 'د.إ' : 'AED', suffix: '+12%', icon: <DollarOutlined />, color: '#c9a84c', bg: '#fff8e1' },
+    { title: t('kpi.overdue'), value: stats?.overdue ?? 185420, prefix: isRTL ? 'د.إ' : 'AED', suffix: stats ? `${stats.overdueCount} عميل` : isRTL ? '214 عميل' : '214 clients', icon: <WarningOutlined />, color: '#c62828', bg: '#ffebee' },
   ];
 
   const quickActions = [
@@ -142,20 +180,25 @@ const Dashboard: React.FC = () => {
     { color: '#52c41a', text: isRTL ? `5 ${t('notifications.newServiceRequests')}` : `5 ${t('notifications.newServiceRequests')}` },
   ];
 
-  // ── Gas Refill Requests — dashboard data ──────────────────────────
-  const refillRequests = [
+  // ── Gas Refill Requests — live + fallback ────────────────────────
+  const mockRefillRequests = [
     { key: 1, id: 'RFR-2026-0101', building: 'برج السلام', tank: 'خزان LPG 2', levelPct: 24, qty: 3500, unit: 'لتر', supplier: 'EMGAS', priority: 'high', status: 'pending',   date: '2026-09-18' },
     { key: 2, id: 'RFR-2026-0098', building: 'مجمع النخيل', tank: 'خزان LPG 1', levelPct: 18, qty: 4000, unit: 'لتر', supplier: 'EMGAS', priority: 'urgent', status: 'approved', date: '2026-09-17' },
     { key: 3, id: 'RFR-2026-0095', building: 'برج الكورنيش', tank: 'خزان غاز طبيعي', levelPct: 15, qty: 1500, unit: 'م³', supplier: 'ADNOC Gas', priority: 'urgent', status: 'approved', date: '2026-09-16' },
     { key: 4, id: 'RFR-2026-0089', building: 'برج السلام', tank: 'خزان LPG 1', levelPct: 75, qty: 1000, unit: 'لتر', supplier: 'EMGAS', priority: 'medium', status: 'approved', date: '2026-09-10' },
     { key: 5, id: 'RFR-2026-0074', building: 'مجمع الياسمين', tank: 'خزان LPG 2', levelPct: 24, qty: 3500, unit: 'لتر', supplier: 'EMGAS', priority: 'high', status: 'completed', date: '2026-09-03' },
   ];
+  const refillRequests = liveRefills.length > 0
+    ? liveRefills.map((r, i) => ({ ...r, key: i + 1, id: r.name }))
+    : mockRefillRequests;
 
   const refillPriorityMap: Record<string, { color: string; label: string }> = {
     low: { color: 'default', label: 'منخفض' },
+    normal: { color: 'default', label: 'عادي' },
     medium: { color: 'blue', label: 'متوسط' },
     high: { color: 'orange', label: 'عالي' },
     urgent: { color: 'red', label: 'عاجل' },
+    critical: { color: 'red', label: 'حرج' },
   };
 
   const refillStatusColors: Record<string, { color: string; label: string }> = {
