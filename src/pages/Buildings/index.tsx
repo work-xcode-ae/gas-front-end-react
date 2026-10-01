@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { getBuildings, Building } from '../../api/buildings';
 import BuildingProfile from './BuildingProfile';
 import {
   Row, Col, Card, Table, Button, Tag, Input, Select, Space, InputNumber,
@@ -91,8 +92,28 @@ const Buildings: React.FC = () => {
   const [viewModal, setViewModal] = useState<any>(null);
   const [showProfile, setShowProfile] = useState(false);
   const [form] = Form.useForm();
+  const [liveBuildings, setLiveBuildings] = useState<Building[]>([]);
 
-  const filtered = mockData.filter(r => {
+  useEffect(() => {
+    getBuildings()
+      .then(data => setLiveBuildings(data))
+      .catch(err => console.warn('Buildings API error:', err));
+  }, []);
+
+  const tableData = liveBuildings.length > 0
+    ? liveBuildings.map((b, i) => ({
+        key: i + 1,
+        no: b.name,
+        name: b.building_name || b.building_name_en || b.name,
+        branch: b.emirate || b.city || '—',
+        units: b.total_units || 0,
+        occupied: 0,
+        vacant: 0,
+        status: (b.status || 'Active').toLowerCase() === 'active' ? 'active' : 'inactive',
+      }))
+    : mockData;
+
+  const filtered = tableData.filter(r => {
     const matchSearch = !search || r.name.includes(search) || r.no.includes(search);
     const matchBranch = !branchFilter || r.branch === branchFilter;
     const matchStatus = !statusFilter || r.status === statusFilter;
