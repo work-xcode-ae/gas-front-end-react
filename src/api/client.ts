@@ -23,7 +23,13 @@ client.interceptors.response.use(
   res => res,
   err => {
     if (err.response?.status === 403) {
-      window.dispatchEvent(new Event('frappe:unauthorized'));
+      // Only fire logout on auth failures, NOT on doctype PermissionError
+      // Frappe returns exc_type: 'PermissionError' for missing roles,
+      // and exc_type: 'AuthenticationError' (or no exc_type) when session expired
+      const excType = err.response?.data?.exc_type;
+      if (!excType || excType === 'AuthenticationError') {
+        window.dispatchEvent(new Event('frappe:unauthorized'));
+      }
     }
     return Promise.reject(err);
   }

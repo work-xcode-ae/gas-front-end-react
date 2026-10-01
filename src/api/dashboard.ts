@@ -64,15 +64,7 @@ export async function getRecentInvoices(limit = 5) {
 }
 
 export async function getRecentMeterReadings(limit = 5) {
-  // Try Gas Meter Reading first, fallback to Meter Reading
-  try {
-    const res = await frappe.getList('Gas Meter Reading', {
-      fields: JSON.stringify(['name', 'reading_date', 'building', 'current_reading', 'previous_reading', 'consumption']),
-      order_by: 'reading_date desc',
-      limit,
-    });
-    if ((res.data.data || []).length > 0) return res.data.data;
-  } catch {}
+  // Gas Meter Reading is a child doctype — use Meter Reading (top-level)
   const res = await frappe.getList('Meter Reading', {
     fields: JSON.stringify(['name', 'reading_date', 'building', 'current_reading', 'previous_reading', 'consumption']),
     order_by: 'reading_date desc',
