@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Row, Col, Card, Table, Tag, Button, Typography, Space, List, Badge } from 'antd';
+import { Row, Col, Card, Table, Tag, Button, Typography, Space, List, Badge , Skeleton } from 'antd';
 import {
   BankOutlined, AppstoreOutlined, TeamOutlined, FileDoneOutlined,
   DollarOutlined, WarningOutlined, FileAddOutlined,
@@ -156,12 +156,12 @@ const Dashboard: React.FC = () => {
   ];
 
   const kpis = [
-    { title: t('kpi.buildings'), value: stats?.buildings ?? 186, suffix: isRTL ? 'مبنى' : '', icon: <BankOutlined />, color: '#1a5c2a', bg: '#e8f5e9' },
-    { title: t('kpi.apartments'), value: stats?.apartments ?? 2356, suffix: isRTL ? 'شقة' : '', icon: <AppstoreOutlined />, color: '#1565c0', bg: '#e3f2fd' },
-    { title: t('kpi.activeCustomers'), value: stats?.activeCustomers ?? 1248, suffix: isRTL ? 'عميل' : '', icon: <TeamOutlined />, color: '#6a1b9a', bg: '#f3e5f5' },
-    { title: t('kpi.totalInvoices'), value: stats?.totalInvoices ?? 528000, prefix: isRTL ? 'د.إ' : 'AED', suffix: '+8%', icon: <FileDoneOutlined />, color: '#00695c', bg: '#e0f2f1' },
-    { title: t('kpi.collected'), value: stats?.collected ?? 342580, prefix: isRTL ? 'د.إ' : 'AED', suffix: '+12%', icon: <DollarOutlined />, color: '#c9a84c', bg: '#fff8e1' },
-    { title: t('kpi.overdue'), value: stats?.overdue ?? 185420, prefix: isRTL ? 'د.إ' : 'AED', suffix: stats ? `${stats.overdueCount} عميل` : isRTL ? '214 عميل' : '214 clients', icon: <WarningOutlined />, color: '#c62828', bg: '#ffebee' },
+    { title: t('kpi.buildings'), value: stats?.buildings ?? 0, suffix: isRTL ? 'مبنى' : '', icon: <BankOutlined />, color: '#1a5c2a', bg: '#e8f5e9' },
+    { title: t('kpi.apartments'), value: stats?.apartments ?? 0, suffix: isRTL ? 'شقة' : '', icon: <AppstoreOutlined />, color: '#1565c0', bg: '#e3f2fd' },
+    { title: t('kpi.activeCustomers'), value: stats?.activeCustomers ?? 0, suffix: isRTL ? 'عميل' : '', icon: <TeamOutlined />, color: '#6a1b9a', bg: '#f3e5f5' },
+    { title: t('kpi.totalInvoices'), value: stats?.totalInvoices ?? 0, prefix: isRTL ? 'د.إ' : 'AED', suffix: stats ? '+8%' : '', icon: <FileDoneOutlined />, color: '#00695c', bg: '#e0f2f1' },
+    { title: t('kpi.collected'), value: stats?.collected ?? 0, prefix: isRTL ? 'د.إ' : 'AED', suffix: stats ? '+12%' : '', icon: <DollarOutlined />, color: '#c9a84c', bg: '#fff8e1' },
+    { title: t('kpi.overdue'), value: stats?.overdue ?? 0, prefix: isRTL ? 'د.إ' : 'AED', suffix: stats ? `${stats.overdueCount} ${isRTL ? 'عميل' : 'clients'}` : '', icon: <WarningOutlined />, color: '#c62828', bg: '#ffebee' },
   ];
 
   const quickActions = [
@@ -241,11 +241,17 @@ const Dashboard: React.FC = () => {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>{k.title}</div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: k.color, lineHeight: 1.2 }}>
-                    {k.prefix && <span style={{ fontSize: 11, marginInlineEnd: 2 }}>{k.prefix}</span>}
-                    {typeof k.value === 'number' ? k.value.toLocaleString() : k.value}
-                  </div>
-                  {k.suffix && <div style={{ fontSize: 11, color: '#aaa' }}>{k.suffix}</div>}
+                  {dataLoading ? (
+                    <div style={{ marginTop: 4 }}>
+                      <Skeleton.Button active size="small" style={{ width: 80, height: 22, borderRadius: 4 }} />
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 20, fontWeight: 700, color: k.color, lineHeight: 1.2 }}>
+                      {k.prefix && <span style={{ fontSize: 11, marginInlineEnd: 2 }}>{k.prefix}</span>}
+                      {typeof k.value === 'number' ? k.value.toLocaleString() : k.value}
+                    </div>
+                  )}
+                  {k.suffix && !dataLoading && <div style={{ fontSize: 11, color: '#aaa' }}>{k.suffix}</div>}
                 </div>
               </div>
             </Card>

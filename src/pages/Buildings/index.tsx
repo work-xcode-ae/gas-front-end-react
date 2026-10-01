@@ -5,7 +5,7 @@ import BuildingProfile from './BuildingProfile';
 import {
   Row, Col, Card, Table, Button, Tag, Input, Select, Space, InputNumber,
   Modal, Form, Typography, Statistic, Divider, Tooltip, Badge, Steps, Result, Upload
-} from 'antd';
+, Skeleton } from 'antd';
 import {
   BankOutlined, PlusOutlined, SearchOutlined, EyeOutlined,
   EditOutlined, DeleteOutlined, ArrowUpOutlined, ArrowDownOutlined,
@@ -92,7 +92,7 @@ const Buildings: React.FC = () => {
   const [liveUnits, setLiveUnits] = useState<BuildingUnit[]>([]);
   const [liveAmc, setLiveAmc] = useState<AmcContract[]>([]);
   const [buildingStats, setBuildingStats] = useState<BuildingStats | null>(null);
-  const [dataLoading, setDataLoading] = useState(false);
+  const [dataLoading, setDataLoading] = useState(true);
 
   useEffect(() => {
     setDataLoading(true);
@@ -123,27 +123,27 @@ const Buildings: React.FC = () => {
   const kpis = [
     {
       title: 'إجمالي المباني',
-      value: (buildingStats?.total ?? liveBuildings.length) || 186,
+      value: buildingStats?.total ?? liveBuildings.length ?? 0,
       trend: +4.2, sub: 'مقارنة بالشهر الماضي',
       icon: <BankOutlined />, color: PRIMARY, bg: PRIMARY_LIGHT,
     },
     {
       title: 'مباني نشطة',
-      value: (buildingStats?.active ?? liveBuildings.filter(b => b.status === 'Active').length) || 171,
+      value: buildingStats?.active ?? liveBuildings.filter(b => b.status === 'Active').length ?? 0,
       trend: +2.1, sub: `${buildingStats ? Math.round((buildingStats.active / (buildingStats.total || 1)) * 100) : 92}% من الإجمالي`,
       icon: <CheckCircleOutlined />, color: '#1565c0', bg: '#e3f2fd',
     },
     {
       title: 'إجمالي الوحدات',
-      value: (buildingStats?.totalUnits ?? liveBuildings.reduce((s, b) => s + (b.total_units || 0), 0)) || 2356,
+      value: buildingStats?.totalUnits ?? liveBuildings.reduce((s, b) => s + (b.total_units || 0), 0) ?? 0,
       trend: +8.5, sub: 'عبر جميع الإمارات',
       icon: <HomeOutlined />, color: '#6a1b9a', bg: '#f3e5f5',
     },
     {
       title: 'وحدات شاغرة',
-      value: buildingStats?.vacantUnits ?? 184,
+      value: buildingStats?.vacantUnits ?? 0,
       trend: -3.2,
-      sub: buildingStats ? `${Math.round((buildingStats.vacantUnits / (buildingStats.totalUnits || 1)) * 100)}% من الإجمالي` : '7.8% من الإجمالي',
+      sub: buildingStats ? `${Math.round((buildingStats.vacantUnits / (buildingStats.totalUnits || 1)) * 100)}% من الإجمالي` : '',
       icon: <ExclamationCircleOutlined />, color: '#c62828', bg: '#ffebee',
     },
   ];
@@ -328,7 +328,11 @@ const Buildings: React.FC = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
                   <Text style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 6 }}>{k.title}</Text>
-                  <div style={{ fontSize: 28, fontWeight: 800, color: k.color, lineHeight: 1.1 }}>{k.value.toLocaleString()}</div>
+                  {dataLoading ? (
+                    <Skeleton.Button active size="small" style={{ width: 80, height: 28, borderRadius: 4, marginTop: 2 }} />
+                  ) : (
+                    <div style={{ fontSize: 28, fontWeight: 800, color: k.color, lineHeight: 1.1 }}>{k.value.toLocaleString()}</div>
+                  )}
                   <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
                     {k.trend > 0 ? <ArrowUpOutlined style={{ color: '#52c41a', fontSize: 11 }} /> : <ArrowDownOutlined style={{ color: '#ff4d4f', fontSize: 11 }} />}
                     <Text style={{ fontSize: 11, color: k.trend > 0 ? '#52c41a' : '#ff4d4f', fontWeight: 600 }}>{Math.abs(k.trend)}%</Text>
