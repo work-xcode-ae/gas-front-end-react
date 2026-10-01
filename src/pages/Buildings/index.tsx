@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { getBuildings, Building } from '../../api/buildings';
+import { getBuildings, getBuildingUnits, getAmcContracts, getBuildingStats } from '../../api/buildings';
+import type { Building, BuildingUnit, AmcContract, BuildingStats } from '../../api/buildings';
 import BuildingProfile from './BuildingProfile';
 import {
   Row, Col, Card, Table, Button, Tag, Input, Select, Space, InputNumber,
@@ -28,12 +29,7 @@ const mockData = [
   { key: 6, no: 'B-006', name: 'مجمع الفجيرة', branch: 'الفجيرة', units: 22, occupied: 18, vacant: 4, status: 'active' },
 ];
 
-const kpis = [
-  { title: 'إجمالي المباني', value: 186, trend: +4.2, sub: 'مقارنة بالشهر الماضي', icon: <BankOutlined />, color: PRIMARY, bg: PRIMARY_LIGHT },
-  { title: 'مباني نشطة', value: 171, trend: +2.1, sub: '92% من الإجمالي', icon: <CheckCircleOutlined />, color: '#1565c0', bg: '#e3f2fd' },
-  { title: 'إجمالي الوحدات', value: 2356, trend: +8.5, sub: 'عبر جميع الفروع', icon: <HomeOutlined />, color: '#6a1b9a', bg: '#f3e5f5' },
-  { title: 'وحدات شاغرة', value: 184, trend: -3.2, sub: '7.8% من الإجمالي', icon: <ExclamationCircleOutlined />, color: '#c62828', bg: '#ffebee' },
-];
+// kpis computed inside component from live data — see below
 
 const barOptions: any = {
   chart: { type: 'bar', toolbar: { show: false }, fontFamily: 'inherit' },
@@ -93,12 +89,77 @@ const Buildings: React.FC = () => {
   const [showProfile, setShowProfile] = useState(false);
   const [form] = Form.useForm();
   const [liveBuildings, setLiveBuildings] = useState<Building[]>([]);
+  const [liveUnits, setLiveUnits] = useState<BuildingUnit[]>([]);
+  const [liveAmc, setLiveAmc] = useState<AmcContract[]>([]);
+  const [buildingStats, setBuildingStats] = useState<BuildingStats | null>(null);
+  const [dataLoading, setDataLoading] = useState(false);
 
   useEffect(() => {
-    getBuildings()
-      .then(data => setLiveBuildings(data))
-      .catch(err => console.warn('Buildings API error:', err));
+    setDataLoading(true);
+    Promise.all([
+      getBuildings(),
+      getAmcContracts(),
+    ]).then(async ([buildings, amc]) => {
+      setLiveBuildings(buildings);
+      setLiveAmc(amc);
+      // Load all units to compute occupancy stats
+      const stats = await getBuildingStats(buildings, []);
+      setBuildingStats(stats);
+      // Load units for occupancy (best-effort)
+      if (buildings.length <= 20) {
+        const unitResults = await Promise.all(
+          buildings.map(b => getBuildingUnits(b.name).catch(() => []))
+        );
+        const allUnits = unitResults.flat();
+        setLiveUnits(allUnits);
+        const statsWithUnits = await getBuildingStats(buildings, allUnits);
+        setBuildingStats(statsWithUnits);
+      }
+    }).catch(err => console.warn('Buildings API error:', err))
+      .finally(() => setDataLoading(false));
   }, []);
+
+  // ── Live KPIs ──────────────────────────────────────────────────────────────
+  const kpis = [
+    {
+      title: 'إجمالي المباني',
+      value: buildingStats?.total ?? liveBuildings.length || 186,
+      trend: +4.2, sub: 'مقارنة بالشهر الماضي',
+      icon: <BankOutlined />, color: PRIMARY, bg: PRIMARY_LIGHT,
+    },
+    {
+      title: 'مباني نشطة',
+      value: buildingStats?.active ?? liveBuildings.filter(b => b.status === 'Active').length || 171,
+      trend: +2.1, sub: `${buildingStats ? Math.round((buildingStats.active / (buildingStats.total || 1)) * 100) : 92}% من الإجمالي`,
+      icon: <CheckCircleOutlined />, color: '#1565c0', bg: '#e3f2fd',
+    },
+    {
+      title: 'إجمالي الوحدات',
+      value: buildingStats?.totalUnits ?? liveBuildings.reduce((s, b) => s + (b.total_units || 0), 0) || 2356,
+      trend: +8.5, sub: 'عبر جميع الإمارات',
+      icon: <HomeOutlined />, color: '#6a1b9a', bg: '#f3e5f5',
+    },
+    {
+      title: 'وحدات شاغرة',
+      value: buildingStats?.vacantUnits ?? 184,
+      trend: -3.2,
+      sub: buildingStats ? `${Math.round((buildingStats.vacantUnits / (buildingStats.totalUnits || 1)) * 100)}% من الإجمالي` : '7.8% من الإجمالي',
+      icon: <ExclamationCircleOutlined />, color: '#c62828', bg: '#ffebee',
+    },
+  ];
+
+  // ── Live chart data ─────────────────────────────────────────────────────────
+  const emirateLabels = Object.keys(buildingStats?.byEmirate || {});
+  const emirateCounts = emirateLabels.map(e => buildingStats!.byEmirate[e]);
+  const liveBarOptions = emirateLabels.length > 0
+    ? { ...barOptions, xaxis: { ...barOptions.xaxis, categories: emirateLabels } }
+    : barOptions;
+  const liveBarSeries = emirateLabels.length > 0
+    ? [{ name: 'المباني', data: emirateCounts }]
+    : [{ name: 'المباني', data: [12, 8, 6, 4, 3] }];
+  const livePieSeries = buildingStats && liveUnits.length > 0
+    ? [buildingStats.occupiedUnits, buildingStats.vacantUnits]
+    : [2172, 184];
 
   const tableData = liveBuildings.length > 0
     ? liveBuildings.map((b, i) => ({
@@ -285,12 +346,12 @@ const Buildings: React.FC = () => {
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} md={15}>
           <Card title={<Text strong style={{ fontSize: 14 }}>توزيع المباني حسب الفرع</Text>} style={{ borderRadius: 14, border: 'none', boxShadow: '0 1px 6px rgba(0,0,0,0.07)' }} styles={{ body: { paddingTop: 8 } }}>
-            <ReactApexChart options={barOptions} series={[{ name: 'المباني', data: [45, 38, 52, 29, 22] }]} type="bar" height={220} />
+            <ReactApexChart options={liveBarOptions} series={liveBarSeries} type="bar" height={220} />
           </Card>
         </Col>
         <Col xs={24} md={9}>
           <Card title={<Text strong style={{ fontSize: 14 }}>نسبة إشغال الوحدات</Text>} style={{ borderRadius: 14, border: 'none', boxShadow: '0 1px 6px rgba(0,0,0,0.07)', height: '100%' }} styles={{ body: { paddingTop: 8 } }}>
-            <ReactApexChart options={pieOptions} series={[2172, 184]} type="donut" height={220} />
+            <ReactApexChart options={pieOptions} series={livePieSeries} type="donut" height={220} />
           </Card>
         </Col>
       </Row>
@@ -308,7 +369,7 @@ const Buildings: React.FC = () => {
             <Option value="inactive">غير نشط</Option>
           </Select>
         </div>
-        <Table dataSource={filtered} columns={columns} pagination={{ pageSize: 10, showTotal: (t) => `إجمالي ${t} مبنى`, size: 'small' }} size="middle" scroll={{ x: true }} />
+        <Table dataSource={filtered} columns={columns} loading={dataLoading} pagination={{ pageSize: 10, showTotal: (t) => `إجمالي ${t} مبنى`, size: 'small' }} size="middle" scroll={{ x: true }} />
       </Card>
 
       {/* ── ADD BUILDING MODAL (Multi-step) ── */}
