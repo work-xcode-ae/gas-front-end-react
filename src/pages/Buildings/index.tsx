@@ -296,7 +296,7 @@ const Buildings: React.FC = () => {
   ];
 
   if (showProfile) {
-    return <BuildingProfile onBack={() => { setShowProfile(false); setViewModal(null); }} />;
+    return <BuildingProfile buildingName={viewModal?.no} onBack={() => { setShowProfile(false); setViewModal(null); }} />;
   }
 
   return (

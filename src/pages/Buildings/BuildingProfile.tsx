@@ -1,4 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { getBuilding, getBuildingUnits, getAmcContracts } from '../../api/buildings';
+import { frappe } from '../../api/client';
 import {
   Row, Col, Card, Table, Button, Tag, Typography, Divider, Tabs,
   Descriptions, Timeline, Badge, Avatar, Space, Tooltip, Progress,
@@ -540,9 +542,9 @@ const unitPieOptions: any = {
   dataLabels: { enabled: true, formatter: (v: number) => `${Math.round(v)}%` },
 };
 
-interface BuildingProfileProps { onBack: () => void; }
+interface BuildingProfileProps { onBack: () => void; buildingName?: string; }
 
-const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
+const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingName }) => {
   const [activeTab, setActiveTab] = useState('overview');
   const [tenantSearch, setTenantSearch] = useState('');
   const [unitSearch, setUnitSearch] = useState('');
@@ -568,11 +570,113 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
   const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
   const [amcModalOpen, setAmcModalOpen] = useState(false);
   const [amcContracts, setAmcContracts] = useState<any[]>(building.amcContracts ?? []);
-  const [refillRequests, setRefillRequests] = useState<RefillRequestItem[]>((building.refillRequests ?? []) as RefillRequestItem[]);
+  const [liveBuilding, setLiveBuilding] = useState<any>(null);
+  const [liveUnits, setLiveUnits] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!buildingName) return;
+    // Load real building data from Frappe
+    Promise.all([
+      getBuilding(buildingName),
+      getBuildingUnits(buildingName),
+      getAmcContracts(buildingName),
+      // Load Gas Tanks for this building
+      frappe.getList('Gas Tank', {
+        fields: JSON.stringify(['name','tank_number','gas_type','capacity','current_level',
+          'capacity_unit','status','installation_date','last_inspection_date','serial_number','manufacturer']),
+        filters: JSON.stringify([['building','=',buildingName]]),
+        limit: 50,
+      }).catch(() => ({ data: { data: [] } })),
+      // Load Meter Readings
+      frappe.getList('Meter Reading', {
+        fields: JSON.stringify(['name','gas_meter','reading_date','current_reading','previous_reading','units_consumed','status','customer','unit']),
+        filters: JSON.stringify([['building','=',buildingName]]),
+        order_by: 'reading_date desc',
+        limit: 20,
+      }).catch(() => ({ data: { data: [] } })),
+      // Load Refill Requests
+      frappe.getList('Refill Request', {
+        fields: JSON.stringify(['name','tank','current_tank_level','requested_quantity','unit_of_measure','gas_type','priority','status','requested_date','customer']),
+        filters: JSON.stringify([['building','=',buildingName]]),
+        order_by: 'creation desc',
+        limit: 20,
+      }).catch(() => ({ data: { data: [] } })),
+    ]).then(([bldg, units, amc, tanksRes, readingsRes, refillsRes]) => {
+      setLiveBuilding(bldg);
+      setLiveUnits(units);
+      if (amc.length > 0) setAmcContracts(amc);
+      // Map live tanks into building.tanks shape for display
+      const liveTanks = (tanksRes.data?.data || []).map((t: any) => ({
+        no: t.tank_number || t.name,
+        typeLabel: t.gas_type || 'غاز',
+        capacity: t.capacity || 0,
+        unit: t.capacity_unit || 'لتر',
+        serial: t.serial_number || '—',
+        installDate: t.installation_date,
+        manufacturer: t.manufacturer || '—',
+        lastInspection: t.last_inspection_date,
+        nextInspection: null,
+        status: t.status === 'Active' ? 'ok' : 'inspection_due',
+        currentLevel: t.current_level || 0,
+      }));
+      if (liveTanks.length > 0) {
+        setLiveBuilding((prev: any) => ({ ...prev, _tanks: liveTanks }));
+      }
+    }).catch(err => console.warn('BuildingProfile API error:', err));
+  }, [buildingName]);
+
+  // Merge live data over the static building object
+  const bldg = liveBuilding
+    ? {
+        ...building,
+        no: liveBuilding.building_code || liveBuilding.name,
+        name: liveBuilding.building_name || building.name,
+        nameEn: liveBuilding.building_name_en || building.nameEn,
+        floors: liveBuilding.total_floors || building.floors,
+        totalUnits: liveBuilding.total_units || building.totalUnits,
+        address: {
+          ...building.address,
+          emirate: liveBuilding.emirate || building.address.emirate,
+          city: liveBuilding.city || building.address.city,
+          zone: liveBuilding.zone || building.address.zone,
+        },
+        status: (liveBuilding.status || 'Active').toLowerCase() === 'active' ? 'active' : 'inactive',
+        statusLabel: liveBuilding.status === 'Active' ? 'نشط' : 'غير نشط',
+        tanks: liveBuilding._tanks?.length ? liveBuilding._tanks : building.tanks,
+        units: liveUnits.length > 0
+          ? liveUnits.map((u: any, i: number) => ({
+              key: i + 1,
+              no: u.unit_number || u.name,
+              floor: u.floor || 0,
+              type: (u.unit_type || 'apartment').toLowerCase(),
+              typeLabel: u.unit_type || 'شقة',
+              area: u.area || 0,
+              bedrooms: u.bedrooms || 0,
+              bathrooms: u.bathrooms || 0,
+              status: (u.status || 'Vacant').toLowerCase(),
+              tenant: u.current_tenant || null,
+              tenantId: u.current_tenant || null,
+              meter: u.gas_meter || null,
+              contract: u.contract || null,
+              contractEnd: null,
+              rent: u.monthly_rent || 0,
+              lastInspection: null,
+              notes: '',
+            }))
+          : building.units,
+        occupied: liveUnits.length > 0
+          ? liveUnits.filter((u: any) => u.status === 'Occupied').length
+          : building.occupied,
+        vacant: liveUnits.length > 0
+          ? liveUnits.filter((u: any) => u.status === 'Vacant').length
+          : building.vacant,
+      }
+    : building;
+  const [refillRequests, setRefillRequests] = useState<RefillRequestItem[]>((bldg.refillRequests ?? []) as RefillRequestItem[]);
   const [refillDrawerOpen, setRefillDrawerOpen] = useState(false);
   const [selectedRefill, setSelectedRefill] = useState<RefillRequestItem | null>(null);
   const [newRefillOpen, setNewRefillOpen] = useState(false);
-  const occupancyRate = Math.round((building.occupied / building.totalUnits) * 100);
+  const occupancyRate = Math.round((bldg.occupied / bldg.totalUnits) * 100);
 
   const header = (
     <Card bordered={false}
@@ -590,12 +694,12 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
             <Avatar size={52} icon={<BankOutlined />} style={{ background: 'rgba(255,255,255,0.2)', fontSize: 24, flexShrink: 0 }} />
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <Title level={4} style={{ margin: 0, color: '#fff' }}>{building.name}</Title>
-                <Tag color="success" style={{ borderRadius: 8, fontWeight: 600 }}>{building.statusLabel}</Tag>
-                <Tag style={{ borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff' }}>{building.typeLabel}</Tag>
+                <Title level={4} style={{ margin: 0, color: '#fff' }}>{bldg.name}</Title>
+                <Tag color="success" style={{ borderRadius: 8, fontWeight: 600 }}>{bldg.statusLabel}</Tag>
+                <Tag style={{ borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff' }}>{bldg.typeLabel}</Tag>
               </div>
               <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>
-                {building.nameEn} · {building.no} · <EnvironmentOutlined style={{ marginInlineEnd: 4 }} />{building.address.city}، {building.branch}
+                {bldg.nameEn} · {bldg.no} · <EnvironmentOutlined style={{ marginInlineEnd: 4 }} />{bldg.address.city}، {bldg.branch}
               </Text>
             </div>
           </div>
@@ -610,12 +714,12 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
       </Row>
       <Row style={{ marginTop: 16, background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '12px 20px' }}>
         {[
-          { label: 'الطوابق', value: building.floors, icon: <ApartmentOutlined /> },
-          { label: 'إجمالي الوحدات', value: building.totalUnits, icon: <HomeOutlined /> },
-          { label: 'مشغول', value: building.occupied, icon: <CheckCircleOutlined /> },
-          { label: 'شاغر', value: building.vacant, icon: <ExclamationCircleOutlined /> },
-          { label: 'الخزانات', value: building.tanks.length, icon: <DatabaseOutlined /> },
-          { label: 'الملاك', value: building.owners.length, icon: <TeamOutlined /> },
+          { label: 'الطوابق', value: bldg.floors, icon: <ApartmentOutlined /> },
+          { label: 'إجمالي الوحدات', value: bldg.totalUnits, icon: <HomeOutlined /> },
+          { label: 'مشغول', value: bldg.occupied, icon: <CheckCircleOutlined /> },
+          { label: 'شاغر', value: bldg.vacant, icon: <ExclamationCircleOutlined /> },
+          { label: 'الخزانات', value: bldg.tanks.length, icon: <DatabaseOutlined /> },
+          { label: 'الملاك', value: bldg.owners.length, icon: <TeamOutlined /> },
         ].map((k, i) => (
           <Col key={i} flex="1" style={{ textAlign: 'center', borderRight: i < 5 ? '1px solid rgba(255,255,255,0.15)' : undefined, padding: '4px 8px' }}>
             <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11, marginBottom: 2 }}>{k.icon} {k.label}</div>
@@ -648,9 +752,9 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           </Col>
         </Row>
         <Card size="small" bordered={false} style={{ borderRadius: 10 }}
-          title={<Text strong><ApartmentOutlined style={{ marginInlineEnd: 6, color: PRIMARY }} />الوحدات ({building.totalUnits})</Text>}
+          title={<Text strong><ApartmentOutlined style={{ marginInlineEnd: 6, color: PRIMARY }} />الوحدات ({bldg.totalUnits})</Text>}
           extra={<Button size="small" type="primary" ghost icon={<PlusOutlined />} onClick={() => setAddUnitOpen(true)}>إضافة وحدة</Button>}>
-          <Table size="small" dataSource={building.units} pagination={{ pageSize: 6, size: 'small' }} rowKey="key"
+          <Table size="small" dataSource={bldg.units} pagination={{ pageSize: 6, size: 'small' }} rowKey="key"
             columns={[
               { title: 'رقم الوحدة', dataIndex: 'no', width: 90, render: (v: string) => <Text strong style={{ color: PRIMARY }}>{v}</Text> },
               { title: 'الطابق', dataIndex: 'floor', width: 70, align: 'center' as const },
@@ -684,7 +788,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           <div style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
               <Text style={{ fontSize: 12 }}>مشغولة</Text>
-              <Text strong style={{ fontSize: 12, color: PRIMARY }}>{building.occupied} / {building.totalUnits}</Text>
+              <Text strong style={{ fontSize: 12, color: PRIMARY }}>{bldg.occupied} / {bldg.totalUnits}</Text>
             </div>
             <Progress percent={occupancyRate} strokeColor={PRIMARY} trailColor="#f0f0f0" size="small" />
           </div>
@@ -700,7 +804,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
         </Card>
         <Card size="small" bordered={false} style={{ borderRadius: 10 }}
           title={<Text strong><BellOutlined style={{ marginInlineEnd: 6, color: PRIMARY }} />آخر النشاطات</Text>}>
-          <Timeline style={{ marginTop: 8 }} items={building.activity.slice(0, 5).map(a => ({
+          <Timeline style={{ marginTop: 8 }} items={bldg.activity.slice(0, 5).map(a => ({
             color: a.type === 'warning' ? 'orange' : a.type === 'success' ? 'green' : 'blue',
             children: (<div><Text style={{ fontSize: 12 }}>{a.action}</Text><br /><Text type="secondary" style={{ fontSize: 11 }}>{a.date}</Text></div>),
           }))} />
@@ -715,16 +819,16 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
         <Card size="small" bordered={false} style={{ borderRadius: 10, height: '100%' }}
           title={<Text strong><BankOutlined style={{ marginInlineEnd: 6, color: PRIMARY }} />معلومات المبنى الأساسية</Text>}>
           <Descriptions column={1} size="small" bordered labelStyle={{ background: '#fafafa', width: 155, fontSize: 13 }} contentStyle={{ fontSize: 13 }}>
-            <Descriptions.Item label="رقم المبنى">{building.no}</Descriptions.Item>
-            <Descriptions.Item label="اسم المبنى (عربي)">{building.name}</Descriptions.Item>
-            <Descriptions.Item label="اسم المبنى (إنجليزي)">{building.nameEn}</Descriptions.Item>
-            <Descriptions.Item label="الفرع">{building.branch}</Descriptions.Item>
-            <Descriptions.Item label="النوع">{building.typeLabel}</Descriptions.Item>
-            <Descriptions.Item label="عدد الطوابق">{building.floors}</Descriptions.Item>
-            <Descriptions.Item label="إجمالي الوحدات">{building.totalUnits}</Descriptions.Item>
-            <Descriptions.Item label="الحالة"><Tag color="success">{building.statusLabel}</Tag></Descriptions.Item>
-            <Descriptions.Item label="تاريخ الإضافة">{building.createdAt}</Descriptions.Item>
-            <Descriptions.Item label="آخر تحديث">{building.lastUpdated}</Descriptions.Item>
+            <Descriptions.Item label="رقم المبنى">{bldg.no}</Descriptions.Item>
+            <Descriptions.Item label="اسم المبنى (عربي)">{bldg.name}</Descriptions.Item>
+            <Descriptions.Item label="اسم المبنى (إنجليزي)">{bldg.nameEn}</Descriptions.Item>
+            <Descriptions.Item label="الفرع">{bldg.branch}</Descriptions.Item>
+            <Descriptions.Item label="النوع">{bldg.typeLabel}</Descriptions.Item>
+            <Descriptions.Item label="عدد الطوابق">{bldg.floors}</Descriptions.Item>
+            <Descriptions.Item label="إجمالي الوحدات">{bldg.totalUnits}</Descriptions.Item>
+            <Descriptions.Item label="الحالة"><Tag color="success">{bldg.statusLabel}</Tag></Descriptions.Item>
+            <Descriptions.Item label="تاريخ الإضافة">{bldg.createdAt}</Descriptions.Item>
+            <Descriptions.Item label="آخر تحديث">{bldg.lastUpdated}</Descriptions.Item>
           </Descriptions>
         </Card>
       </Col>
@@ -732,13 +836,13 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
         <Card size="small" bordered={false} style={{ borderRadius: 10 }}
           title={<Text strong><EnvironmentOutlined style={{ marginInlineEnd: 6, color: PRIMARY }} />العنوان والموقع</Text>}>
           <Descriptions column={1} size="small" bordered labelStyle={{ background: '#fafafa', width: 155, fontSize: 13 }} contentStyle={{ fontSize: 13 }}>
-            <Descriptions.Item label="الإمارة">{building.address.emirate}</Descriptions.Item>
-            <Descriptions.Item label="المدينة / المنطقة">{building.address.city}</Descriptions.Item>
-            <Descriptions.Item label="الحي / المنطقة">{building.address.zone}</Descriptions.Item>
-            <Descriptions.Item label="الشارع">{building.address.street}</Descriptions.Item>
-            <Descriptions.Item label="صندوق البريد">{building.address.poBox}</Descriptions.Item>
-            <Descriptions.Item label="العنوان الكامل"><Paragraph style={{ margin: 0, fontSize: 13 }}>{building.address.fullAddress}</Paragraph></Descriptions.Item>
-            <Descriptions.Item label="الإحداثيات"><Text style={{ fontFamily: 'monospace', fontSize: 12, direction: 'ltr', display: 'inline-block' }}>{building.address.coordinates}</Text></Descriptions.Item>
+            <Descriptions.Item label="الإمارة">{bldg.address.emirate}</Descriptions.Item>
+            <Descriptions.Item label="المدينة / المنطقة">{bldg.address.city}</Descriptions.Item>
+            <Descriptions.Item label="الحي / المنطقة">{bldg.address.zone}</Descriptions.Item>
+            <Descriptions.Item label="الشارع">{bldg.address.street}</Descriptions.Item>
+            <Descriptions.Item label="صندوق البريد">{bldg.address.poBox}</Descriptions.Item>
+            <Descriptions.Item label="العنوان الكامل"><Paragraph style={{ margin: 0, fontSize: 13 }}>{bldg.address.fullAddress}</Paragraph></Descriptions.Item>
+            <Descriptions.Item label="الإحداثيات"><Text style={{ fontFamily: 'monospace', fontSize: 12, direction: 'ltr', display: 'inline-block' }}>{bldg.address.coordinates}</Text></Descriptions.Item>
           </Descriptions>
           <div style={{ marginTop: 12, borderRadius: 8, background: '#f5f5f5', height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #eee' }}>
             <div style={{ textAlign: 'center', color: '#bbb' }}>
@@ -753,7 +857,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
 
   const ownersTab = (
     <Row gutter={[16, 16]}>
-      {building.owners.map((owner, idx) => (
+      {bldg.owners.map((owner, idx) => (
         <Col xs={24} lg={12} key={idx}>
           <Card size="small" bordered={false}
             style={{ borderRadius: 10, border: owner.isPrimary ? '2px solid #faad14' : '1px solid #f0f0f0', height: '100%' }}
@@ -814,7 +918,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
 
   const tanksTab = (
     <Row gutter={[16, 16]}>
-      {building.tanks.map((tank: any, idx: number) => {
+      {bldg.tanks.map((tank: any, idx: number) => {
         const pct = Math.round((tank.currentLevel / tank.capacity) * 100);
         const levelColor = pct >= 60 ? '#52c41a' : pct >= 30 ? '#fa8c16' : '#ff4d4f';
         const levelLabel = pct >= 60 ? 'مستوى جيد' : pct >= 30 ? 'مستوى منخفض' : 'يحتاج تعبئة';
@@ -917,15 +1021,15 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
   );
 
   // ── Financials Tab — two sections: AMC invoices + Gas Supply invoices ─
-  const amcInvoices = building.invoices.filter((inv: any) => inv.type === 'amc');
-  const gasInvoices = building.invoices.filter((inv: any) => inv.type === 'gas');
+  const amcInvoices = bldg.invoices.filter((inv: any) => inv.type === 'amc');
+  const gasInvoices = bldg.invoices.filter((inv: any) => inv.type === 'gas');
   const amcTotal   = amcInvoices.reduce((s: number, i: any) => s + i.amount, 0);
   const gasTotal   = gasInvoices.reduce((s: number, i: any) => s + i.amount, 0);
   const gasPaid    = gasInvoices.filter((i: any) => i.status === 'paid').reduce((s: number, i: any) => s + i.amount, 0);
   const gasOverdue = gasInvoices.filter((i: any) => i.status === 'overdue').reduce((s: number, i: any) => s + i.amount, 0);
 
   // Supply invoices derived from supplyContracts
-  const supplyInvoices = building.supplyContracts.map((c: any, idx: number) => ({
+  const supplyInvoices = bldg.supplyContracts.map((c: any, idx: number) => ({
     id: `SINV-${String(idx + 1).padStart(3, '0')}`,
     contractNo: c.contractNo,
     tenant: c.tenant,
@@ -1060,7 +1164,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
 
   const serviceTab = (
     <Row gutter={[16, 16]}>
-      {building.serviceRequests.map((sr, idx) => (
+      {bldg.serviceRequests.map((sr, idx) => (
         <Col xs={24} key={idx}>
           <Card size="small" bordered={false}
             style={{ borderRadius: 10, border: sr.status === 'in_progress' ? '2px solid #fa8c16' : '1px solid #f0f0f0' }}>
@@ -1088,7 +1192,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
 
   const docsTab = (
     <Card bordered={false} style={{ borderRadius: 10 }}>
-      <List dataSource={building.documents} renderItem={(doc) => (
+      <List dataSource={bldg.documents} renderItem={(doc) => (
         <List.Item actions={[
           <Button size="small" type="link" key="v">عرض</Button>,
           <Button size="small" type="link" key="d">تحميل</Button>,
@@ -1133,9 +1237,9 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           <Text strong style={{ color: contractTab === 'amc' ? PRIMARY : '#666', display: 'block' }}>عقد الصيانة السنوي</Text>
           <Text type="secondary" style={{ fontSize: 11 }}>AMC Gas Contract — صيانة مواسير الغاز وفحص السلامة</Text>
           <div style={{ marginTop: 8 }}>
-            {building.amcContracts.filter((c: any) => c.status === 'active').length > 0
+            {bldg.amcContracts.filter((c: any) => c.status === 'active').length > 0
               ? <Tag color="success">نشط</Tag> : <Tag color="error">منتهي</Tag>}
-            <Tag color="default">{building.amcContracts.length} عقود</Tag>
+            <Tag color="default">{bldg.amcContracts.length} عقود</Tag>
           </div>
         </div>
         <div
@@ -1150,8 +1254,8 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           <Text strong style={{ color: contractTab === 'supply' ? '#fa8c16' : '#666', display: 'block' }}>عقود توريد الغاز</Text>
           <Text type="secondary" style={{ fontSize: 11 }}>Gas Supply Contract — رسوم شهرية ومتابعة العدادات</Text>
           <div style={{ marginTop: 8 }}>
-            <Tag color="success">{building.supplyContracts.filter((c: any) => c.status === 'active').length} نشط</Tag>
-            <Tag color="error">{building.supplyContracts.filter((c: any) => c.status === 'expired').length} منتهي</Tag>
+            <Tag color="success">{bldg.supplyContracts.filter((c: any) => c.status === 'active').length} نشط</Tag>
+            <Tag color="error">{bldg.supplyContracts.filter((c: any) => c.status === 'expired').length} منتهي</Tag>
           </div>
         </div>
       </div>
@@ -1269,12 +1373,12 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           {/* Summary */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
             {[
-              { label: 'إجمالي العقود', value: building.supplyContracts.length, color: '#fa8c16', bg: '#fff7e6' },
-              { label: 'نشطة', value: building.supplyContracts.filter((c: any) => c.status === 'active').length, color: '#52c41a', bg: '#f6ffed' },
-              { label: 'منتهية', value: building.supplyContracts.filter((c: any) => c.status === 'expired').length, color: '#ff4d4f', bg: '#fff1f0' },
-              { label: 'متأخرة', value: building.supplyContracts.filter((c: any) => c.paymentStatus === 'overdue').length, color: '#ff4d4f', bg: '#fff1f0' },
-              { label: 'إجمالي الودائع', value: `${building.supplyContracts.reduce((s: number, c: any) => s + (c.depositPaid ? c.depositAmount : 0), 0).toLocaleString()} د.إ`, color: '#1677ff', bg: '#e6f4ff' },
-              { label: 'الرصيد الكلي', value: `${building.supplyContracts.reduce((s: number, c: any) => s + c.balanceAmount, 0).toLocaleString()} د.إ`, color: PRIMARY, bg: '#e8f5e9' },
+              { label: 'إجمالي العقود', value: bldg.supplyContracts.length, color: '#fa8c16', bg: '#fff7e6' },
+              { label: 'نشطة', value: bldg.supplyContracts.filter((c: any) => c.status === 'active').length, color: '#52c41a', bg: '#f6ffed' },
+              { label: 'منتهية', value: bldg.supplyContracts.filter((c: any) => c.status === 'expired').length, color: '#ff4d4f', bg: '#fff1f0' },
+              { label: 'متأخرة', value: bldg.supplyContracts.filter((c: any) => c.paymentStatus === 'overdue').length, color: '#ff4d4f', bg: '#fff1f0' },
+              { label: 'إجمالي الودائع', value: `${bldg.supplyContracts.reduce((s: number, c: any) => s + (c.depositPaid ? c.depositAmount : 0), 0).toLocaleString()} د.إ`, color: '#1677ff', bg: '#e6f4ff' },
+              { label: 'الرصيد الكلي', value: `${bldg.supplyContracts.reduce((s: number, c: any) => s + c.balanceAmount, 0).toLocaleString()} د.إ`, color: PRIMARY, bg: '#e8f5e9' },
             ].map((s, i) => (
               <Card key={i} size="small" bordered={false} style={{ borderRadius: 10, background: s.bg, minWidth: 100, textAlign: 'center', flex: '1 1 90px' }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -1289,7 +1393,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           {/* Table of supply contracts */}
           <Table
             size="small"
-            dataSource={building.supplyContracts}
+            dataSource={bldg.supplyContracts}
             rowKey="id"
             pagination={{ pageSize: 10, size: 'small' }}
             expandable={{
@@ -1381,7 +1485,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
   const unitStatusColors: Record<string, string> = {
     occupied: '#52c41a', vacant: '#ff4d4f', maintenance: '#fa8c16', reserved: '#1677ff',
   };
-  const filteredUnits = building.units.filter(u => {
+  const filteredUnits = bldg.units.filter(u => {
     const matchSearch = unitSearch === '' || u.no.includes(unitSearch) || (u.tenant || '').includes(unitSearch);
     const matchFilter = unitFilter === 'all' || u.status === unitFilter;
     return matchSearch && matchFilter;
@@ -1392,11 +1496,11 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
       {/* Floor summary strip */}
       <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         {[
-          { label: 'إجمالي الوحدات', value: building.totalUnits, color: PRIMARY, bg: '#e8f5e9' },
-          { label: 'مشغول', value: building.occupied, color: '#52c41a', bg: '#f6ffed' },
-          { label: 'شاغر', value: building.vacant, color: '#ff4d4f', bg: '#fff1f0' },
-          { label: 'صيانة', value: building.units.filter(u => u.status === 'maintenance').length, color: '#fa8c16', bg: '#fff7e6' },
-          { label: 'محجوز', value: building.units.filter(u => u.status === 'reserved').length, color: '#1677ff', bg: '#e6f4ff' },
+          { label: 'إجمالي الوحدات', value: bldg.totalUnits, color: PRIMARY, bg: '#e8f5e9' },
+          { label: 'مشغول', value: bldg.occupied, color: '#52c41a', bg: '#f6ffed' },
+          { label: 'شاغر', value: bldg.vacant, color: '#ff4d4f', bg: '#fff1f0' },
+          { label: 'صيانة', value: bldg.units.filter(u => u.status === 'maintenance').length, color: '#fa8c16', bg: '#fff7e6' },
+          { label: 'محجوز', value: bldg.units.filter(u => u.status === 'reserved').length, color: '#1677ff', bg: '#e6f4ff' },
         ].map((s, i) => (
           <Card key={i} size="small" bordered={false} style={{ borderRadius: 10, background: s.bg, minWidth: 110, textAlign: 'center', flex: '1 1 100px' }}>
             <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -1411,9 +1515,9 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           <ApartmentOutlined style={{ marginInlineEnd: 6, color: PRIMARY }} />مخطط الطوابق
         </Text>
         <div style={{ display: 'flex', flexDirection: 'column-reverse', gap: 6 }}>
-          {Array.from({ length: building.floors }, (_, fi) => {
+          {Array.from({ length: bldg.floors }, (_, fi) => {
             const floorNo = fi + 1;
-            const floorUnits = building.units.filter(u => u.floor === floorNo);
+            const floorUnits = bldg.units.filter(u => u.floor === floorNo);
             return (
               <div key={fi} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <Text style={{ fontSize: 11, color: '#888', width: 52, textAlign: 'left', flexShrink: 0 }}>ط {floorNo}</Text>
@@ -1504,7 +1608,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
   );
 
   // ── Meters Tab ─────────────────────────────────────────────────────
-  const filteredMeters = building.meters.filter(m => {
+  const filteredMeters = bldg.meters.filter(m => {
     const matchSearch = meterSearch === '' || m.id.includes(meterSearch) || m.serial.includes(meterSearch) || (m.tenant || '').includes(meterSearch) || m.unit.includes(meterSearch);
     const matchFilter = meterFilter === 'all' || m.status === meterFilter;
     return matchSearch && matchFilter;
@@ -1515,12 +1619,12 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
       {/* Meter stats */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         {[
-          { label: 'إجمالي العدادات', value: building.meters.length, color: PRIMARY, bg: '#e8f5e9' },
-          { label: 'نشط', value: building.meters.filter(m => m.status === 'active').length, color: '#52c41a', bg: '#f6ffed' },
-          { label: 'عطل', value: building.meters.filter(m => m.status === 'fault').length, color: '#ff4d4f', bg: '#fff1f0' },
-          { label: 'مفصول', value: building.meters.filter(m => m.status === 'disconnected').length, color: '#8c8c8c', bg: '#f5f5f5' },
-          { label: 'عداد ذكي', value: building.meters.filter(m => m.type === 'smart').length, color: '#1677ff', bg: '#e6f4ff' },
-          { label: 'متوسط الاستهلاك', value: `${Math.round(building.meters.reduce((acc, m) => acc + m.monthlyAvg, 0) / building.meters.length)} م³`, color: '#fa8c16', bg: '#fff7e6' },
+          { label: 'إجمالي العدادات', value: bldg.meters.length, color: PRIMARY, bg: '#e8f5e9' },
+          { label: 'نشط', value: bldg.meters.filter(m => m.status === 'active').length, color: '#52c41a', bg: '#f6ffed' },
+          { label: 'عطل', value: bldg.meters.filter(m => m.status === 'fault').length, color: '#ff4d4f', bg: '#fff1f0' },
+          { label: 'مفصول', value: bldg.meters.filter(m => m.status === 'disconnected').length, color: '#8c8c8c', bg: '#f5f5f5' },
+          { label: 'عداد ذكي', value: bldg.meters.filter(m => m.type === 'smart').length, color: '#1677ff', bg: '#e6f4ff' },
+          { label: 'متوسط الاستهلاك', value: `${Math.round(bldg.meters.reduce((acc, m) => acc + m.monthlyAvg, 0) / bldg.meters.length)} م³`, color: '#fa8c16', bg: '#fff7e6' },
         ].map((s, i) => (
           <Card key={i} size="small" bordered={false} style={{ borderRadius: 10, background: s.bg, minWidth: 100, textAlign: 'center', flex: '1 1 90px' }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -1643,7 +1747,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
     </div>
   );
 
-  const filteredTenants = building.tenants.filter(t => {
+  const filteredTenants = bldg.tenants.filter(t => {
     const matchSearch = tenantSearch === '' || t.name.includes(tenantSearch) || t.unit.includes(tenantSearch) || t.phone.includes(tenantSearch);
     const matchFilter = tenantFilter === 'all' || t.paymentStatus === tenantFilter;
     return matchSearch && matchFilter;
@@ -1654,10 +1758,10 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
       {/* Summary row */}
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         {[
-          { label: 'إجمالي المستأجرين', value: building.tenants.length, color: PRIMARY, bg: '#e8f5e9' },
-          { label: 'عقود سارية', value: building.tenants.filter(t => t.paymentStatus !== 'overdue').length, color: '#1677ff', bg: '#e3f2fd' },
-          { label: 'دفعات متأخرة', value: building.tenants.filter(t => t.paymentStatus === 'overdue').length, color: '#ff4d4f', bg: '#ffebee' },
-          { label: 'بدون وديعة', value: building.tenants.filter(t => !t.depositPaid).length, color: '#fa8c16', bg: '#fff7e6' },
+          { label: 'إجمالي المستأجرين', value: bldg.tenants.length, color: PRIMARY, bg: '#e8f5e9' },
+          { label: 'عقود سارية', value: bldg.tenants.filter(t => t.paymentStatus !== 'overdue').length, color: '#1677ff', bg: '#e3f2fd' },
+          { label: 'دفعات متأخرة', value: bldg.tenants.filter(t => t.paymentStatus === 'overdue').length, color: '#ff4d4f', bg: '#ffebee' },
+          { label: 'بدون وديعة', value: bldg.tenants.filter(t => !t.depositPaid).length, color: '#fa8c16', bg: '#fff7e6' },
         ].map((s, i) => (
           <Col xs={12} md={6} key={i}>
             <Card size="small" bordered={false} style={{ borderRadius: 10, background: s.bg, textAlign: 'center' }}>
@@ -1845,9 +1949,9 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
 
   const findingColors: Record<string, string> = { info: '#1677ff', warning: '#fa8c16', error: '#ff4d4f' };
 
-  const completedVisits = building.scheduledVisits.filter((v: any) => v.status === 'completed');
-  const upcomingVisits  = building.scheduledVisits.filter((v: any) => v.status === 'scheduled' || v.status === 'in_progress');
-  const activeContract  = building.amcContracts.find((c: any) => c.status === 'active');
+  const completedVisits = bldg.scheduledVisits.filter((v: any) => v.status === 'completed');
+  const upcomingVisits  = bldg.scheduledVisits.filter((v: any) => v.status === 'scheduled' || v.status === 'in_progress');
+  const activeContract  = bldg.amcContracts.find((c: any) => c.status === 'active');
 
   const scheduledVisitsTab = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -1910,11 +2014,11 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
       {/* ── KPI Row ── */}
       <Row gutter={[12, 12]}>
         {[
-          { label: 'إجمالي الزيارات', value: building.scheduledVisits.length, color: PRIMARY, bg: '#e8f5e9', icon: <CalendarOutlined /> },
+          { label: 'إجمالي الزيارات', value: bldg.scheduledVisits.length, color: PRIMARY, bg: '#e8f5e9', icon: <CalendarOutlined /> },
           { label: 'مجدولة / قادمة',  value: upcomingVisits.length, color: '#1677ff', bg: '#e6f4ff', icon: <ClockCircleOutlined /> },
           { label: 'مكتملة',          value: completedVisits.length, color: '#52c41a', bg: '#f6ffed', icon: <CheckCircleOutlined /> },
-          { label: 'ملاحظات مفتوحة', value: building.scheduledVisits.flatMap((v: any) => v.findings).filter((f: any) => f.severity !== 'info').length, color: '#fa8c16', bg: '#fff7e6', icon: <ExclamationCircleOutlined /> },
-          { label: 'زيارات طارئة',    value: building.scheduledVisits.filter((v: any) => v.type === 'emergency').length, color: '#ff4d4f', bg: '#fff1f0', icon: <AlertOutlined /> },
+          { label: 'ملاحظات مفتوحة', value: bldg.scheduledVisits.flatMap((v: any) => v.findings).filter((f: any) => f.severity !== 'info').length, color: '#fa8c16', bg: '#fff7e6', icon: <ExclamationCircleOutlined /> },
+          { label: 'زيارات طارئة',    value: bldg.scheduledVisits.filter((v: any) => v.type === 'emergency').length, color: '#ff4d4f', bg: '#fff1f0', icon: <AlertOutlined /> },
         ].map((s: any, i) => (
           <Col xs={12} sm={8} md={5} lg={5} key={i}>
             <Card size="small" bordered={false} style={{ borderRadius: 10, background: s.bg }}>
@@ -1993,7 +2097,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
         }
       >
         <Table size="small" rowKey="id" pagination={{ pageSize: 8, size: 'small' }}
-          dataSource={[...building.scheduledVisits].sort((a: any, b: any) => b.scheduledDate.localeCompare(a.scheduledDate))}
+          dataSource={[...bldg.scheduledVisits].sort((a: any, b: any) => b.scheduledDate.localeCompare(a.scheduledDate))}
           expandable={{
             expandedRowRender: (r: any) => (
               <div style={{ padding: '10px 16px', background: '#fafafa', borderRadius: 8 }}>
@@ -2202,9 +2306,9 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
     { title: 'إصدار الشهادة',      description: 'استلام شهادة المطابقة الجديدة من الدفاع المدني', icon: <FileDoneOutlined /> },
   ];
 
-  const activeCoc    = building.civilDefense.certificates.find((c: any) => c.status === 'active');
-  const inProgressCoc = building.civilDefense.certificates.find((c: any) => c.status === 'renewal_in_progress');
-  const allCocs      = [...building.civilDefense.certificates].sort((a: any, b: any) => (b.issueDate || '9999').localeCompare(a.issueDate || '9999'));
+  const activeCoc    = bldg.civilDefense.certificates.find((c: any) => c.status === 'active');
+  const inProgressCoc = bldg.civilDefense.certificates.find((c: any) => c.status === 'renewal_in_progress');
+  const allCocs      = [...bldg.civilDefense.certificates].sort((a: any, b: any) => (b.issueDate || '9999').localeCompare(a.issueDate || '9999'));
 
   // Days until expiry
   const daysUntilExpiry = (dateStr: string) => {
@@ -2315,12 +2419,12 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
       {/* ── Summary Stats ── */}
       <Row gutter={[12, 12]}>
         {[
-          { label: 'إجمالي الشهادات', value: building.civilDefense.certificates.length, color: PRIMARY, bg: '#e8f5e9', icon: <AuditOutlined /> },
-          { label: 'سارية حالياً',    value: building.civilDefense.certificates.filter((c: any) => c.status === 'active').length, color: '#52c41a', bg: '#f6ffed', icon: <CheckCircleOutlined /> },
-          { label: 'قيد التجديد',     value: building.civilDefense.certificates.filter((c: any) => c.status === 'renewal_in_progress').length, color: '#1677ff', bg: '#e6f4ff', icon: <ClockCircleOutlined /> },
-          { label: 'منتهية الصلاحية', value: building.civilDefense.certificates.filter((c: any) => c.status === 'expired').length, color: '#ff4d4f', bg: '#fff1f0', icon: <ExclamationCircleOutlined /> },
-          { label: 'آخر فحص',         value: building.civilDefense.lastInspection, color: '#888', bg: '#fafafa', icon: <CalendarOutlined />, text: true },
-          { label: 'موعد التجديد',    value: building.civilDefense.nextRenewalDue, color: '#fa8c16', bg: '#fff7e6', icon: <CalendarOutlined />, text: true },
+          { label: 'إجمالي الشهادات', value: bldg.civilDefense.certificates.length, color: PRIMARY, bg: '#e8f5e9', icon: <AuditOutlined /> },
+          { label: 'سارية حالياً',    value: bldg.civilDefense.certificates.filter((c: any) => c.status === 'active').length, color: '#52c41a', bg: '#f6ffed', icon: <CheckCircleOutlined /> },
+          { label: 'قيد التجديد',     value: bldg.civilDefense.certificates.filter((c: any) => c.status === 'renewal_in_progress').length, color: '#1677ff', bg: '#e6f4ff', icon: <ClockCircleOutlined /> },
+          { label: 'منتهية الصلاحية', value: bldg.civilDefense.certificates.filter((c: any) => c.status === 'expired').length, color: '#ff4d4f', bg: '#fff1f0', icon: <ExclamationCircleOutlined /> },
+          { label: 'آخر فحص',         value: bldg.civilDefense.lastInspection, color: '#888', bg: '#fafafa', icon: <CalendarOutlined />, text: true },
+          { label: 'موعد التجديد',    value: bldg.civilDefense.nextRenewalDue, color: '#fa8c16', bg: '#fff7e6', icon: <CalendarOutlined />, text: true },
         ].map((s: any, i) => (
           <Col xs={12} sm={8} md={4} key={i}>
             <Card size="small" bordered={false} style={{ borderRadius: 10, background: s.bg }}>
@@ -2431,12 +2535,12 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
             <Avatar icon={<UserOutlined />} style={{ background: '#1677ff' }} />
           </Col>
           <Col flex="1">
-            <Text strong style={{ fontSize: 13, display: 'block' }}>{building.civilDefense.inspector}</Text>
-            <Text type="secondary" style={{ fontSize: 11 }}>{building.civilDefense.inspectorDept}</Text>
+            <Text strong style={{ fontSize: 13, display: 'block' }}>{bldg.civilDefense.inspector}</Text>
+            <Text type="secondary" style={{ fontSize: 11 }}>{bldg.civilDefense.inspectorDept}</Text>
           </Col>
           <Col>
             <Space>
-              <Button size="small" icon={<PhoneOutlined />}>{building.civilDefense.inspectorPhone}</Button>
+              <Button size="small" icon={<PhoneOutlined />}>{bldg.civilDefense.inspectorPhone}</Button>
               <Button size="small" type="primary" ghost icon={<CalendarOutlined />}>جدولة فحص</Button>
             </Space>
           </Col>
@@ -2485,7 +2589,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           <Divider />
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text type="secondary" style={{ fontSize: 12 }}>
-              <CalendarOutlined style={{ marginInlineEnd: 4 }} />موعد التجديد: {building.civilDefense.nextRenewalDue}
+              <CalendarOutlined style={{ marginInlineEnd: 4 }} />موعد التجديد: {bldg.civilDefense.nextRenewalDue}
             </Text>
             <Space>
               <Button icon={<FilePdfOutlined />}>تحميل نموذج الطلب</Button>
@@ -2645,7 +2749,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
         <ClockCircleOutlined style={{ marginInlineEnd: 8, color: PRIMARY }} />سجل النشاط والأحداث
       </Text>
       <Timeline
-        items={building.activity.map(a => ({
+        items={bldg.activity.map(a => ({
           color: activityTypeConfig[a.type]?.color || '#1677ff',
           dot: activityTypeConfig[a.type]?.dot,
           children: (
@@ -2661,18 +2765,18 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
 
   const tabs = [
     { key: 'overview', label: <span><BarChartOutlined /> نظرة عامة</span>, children: overviewTab },
-    { key: 'units', label: <span><ApartmentOutlined /> الوحدات ({building.units.length})</span>, children: unitsTab },
-    { key: 'meters', label: <span><FireOutlined /> العدادات ({building.meters.length})</span>, children: metersTab },
-    { key: 'tenants', label: <span><TeamOutlined /> المستأجرون ({building.tenants.length})</span>, children: tenantsTab },
-    { key: 'contracts', label: <span><SafetyCertificateOutlined /> عقود الغاز ({building.amcContracts.length + building.supplyContracts.length})</span>, children: contractsTab },
-    { key: 'visits', label: <span><CalendarOutlined style={{ color: '#1677ff' }} /> زيارات الصيانة ({building.scheduledVisits.length})</span>, children: scheduledVisitsTab },
+    { key: 'units', label: <span><ApartmentOutlined /> الوحدات ({bldg.units.length})</span>, children: unitsTab },
+    { key: 'meters', label: <span><FireOutlined /> العدادات ({bldg.meters.length})</span>, children: metersTab },
+    { key: 'tenants', label: <span><TeamOutlined /> المستأجرون ({bldg.tenants.length})</span>, children: tenantsTab },
+    { key: 'contracts', label: <span><SafetyCertificateOutlined /> عقود الغاز ({bldg.amcContracts.length + bldg.supplyContracts.length})</span>, children: contractsTab },
+    { key: 'visits', label: <span><CalendarOutlined style={{ color: '#1677ff' }} /> زيارات الصيانة ({bldg.scheduledVisits.length})</span>, children: scheduledVisitsTab },
     { key: 'financials', label: <span><DollarOutlined /> الفواتير والمالية</span>, children: financialsTab },
     { key: 'info', label: <span><BankOutlined /> معلومات المبنى</span>, children: infoTab },
-    { key: 'owners', label: <span><TeamOutlined /> الملاك ({building.owners.length})</span>, children: ownersTab },
-    { key: 'tanks', label: <span><DatabaseOutlined /> الخزانات ({building.tanks.length})</span>, children: tanksTab },
-    { key: 'refill', label: <span><FireOutlined style={{ color: '#fa8c16' }} /> طلبات التعبئة ({building.refillRequests.length})</span>, children: refillTab },
-    { key: 'service', label: <span><ToolOutlined /> طلبات الخدمة ({building.serviceRequests.length})</span>, children: serviceTab },
-    { key: 'docs', label: <span><FileTextOutlined /> الوثائق ({building.documents.length})</span>, children: docsTab },
+    { key: 'owners', label: <span><TeamOutlined /> الملاك ({bldg.owners.length})</span>, children: ownersTab },
+    { key: 'tanks', label: <span><DatabaseOutlined /> الخزانات ({bldg.tanks.length})</span>, children: tanksTab },
+    { key: 'refill', label: <span><FireOutlined style={{ color: '#fa8c16' }} /> طلبات التعبئة ({bldg.refillRequests.length})</span>, children: refillTab },
+    { key: 'service', label: <span><ToolOutlined /> طلبات الخدمة ({bldg.serviceRequests.length})</span>, children: serviceTab },
+    { key: 'docs', label: <span><FileTextOutlined /> الوثائق ({bldg.documents.length})</span>, children: docsTab },
     { key: 'civildefense', label: <span><AuditOutlined style={{ color: '#1677ff' }} /> الدفاع المدني (CoC)</span>, children: civilDefenseTab },
     { key: 'activity', label: <span><ClockCircleOutlined /> سجل النشاط</span>, children: activityTab },
   ];
@@ -2693,10 +2797,10 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
       />
       <AddAmcContractModal
         open={amcModalOpen}
-        buildingName={building.name}
-        ownerName={building.owners?.[0]?.name}
-        ownerPhone={building.owners?.[0]?.defaultPhone}
-        ownerEmail={building.owners?.[0]?.defaultEmail}
+        buildingName={bldg.name}
+        ownerName={bldg.owners?.[0]?.name}
+        ownerPhone={bldg.owners?.[0]?.defaultPhone}
+        ownerEmail={bldg.owners?.[0]?.defaultEmail}
         onClose={() => setAmcModalOpen(false)}
         onSave={(c) => { setAmcContracts(prev => [c, ...prev]); setAmcModalOpen(false); }}
       />
@@ -2704,34 +2808,34 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
         open={profileDrawerOpen}
         onClose={() => { setProfileDrawerOpen(false); setProfileTenant(null); }}
         tenant={profileTenant}
-        buildingName={building.name}
+        buildingName={bldg.name}
         onOpenInvoices={() => { setProfileDrawerOpen(false); setInvoiceTenant(profileTenant); setInvoiceDrawerOpen(true); }}
       />
       <TenantInvoicesDrawer
         open={invoiceDrawerOpen}
         onClose={() => { setInvoiceDrawerOpen(false); setInvoiceTenant(null); }}
         tenant={invoiceTenant}
-        buildingName={building.name}
+        buildingName={bldg.name}
       />
       <GasContractDrawer
         open={contractDrawerOpen}
         contract={selectedContract}
-        buildingName={building.name}
+        buildingName={bldg.name}
         onClose={() => { setContractDrawerOpen(false); setSelectedContract(null); }}
       />
       <AddTenantModal
         open={addTenantOpen}
         onClose={() => setAddTenantOpen(false)}
-        buildingUnits={building.units.map(u => ({ key: u.key, no: u.no, floor: u.floor, typeLabel: u.typeLabel, tenant: u.tenant }))}
+        buildingUnits={bldg.units.map(u => ({ key: u.key, no: u.no, floor: u.floor, typeLabel: u.typeLabel, tenant: u.tenant }))}
         onAdd={(data) => { console.log('New tenant:', data); setAddTenantOpen(false); }}
       />
       <AddGasContractModal
         open={addContractOpen}
         onClose={() => { setAddContractOpen(false); setContractTenant(undefined); }}
-        buildingUnits={building.units.map(u => ({ key: u.key, no: u.no, floor: u.floor, typeLabel: u.typeLabel, tenant: u.tenant }))}
-        tenants={building.tenants.map(t => ({ id: t.id, name: t.name, unit: t.unit }))}
+        buildingUnits={bldg.units.map(u => ({ key: u.key, no: u.no, floor: u.floor, typeLabel: u.typeLabel, tenant: u.tenant }))}
+        tenants={bldg.tenants.map(t => ({ id: t.id, name: t.name, unit: t.unit }))}
         defaultTenantId={contractTenant}
-        nextContractNo={`GC-${new Date().getFullYear()}-${String(building.tenants.length + 1).padStart(3, '0')}`}
+        nextContractNo={`GC-${new Date().getFullYear()}-${String(bldg.tenants.length + 1).padStart(3, '0')}`}
         onSave={(data) => { console.log('Contract saved:', data); setAddContractOpen(false); setContractTenant(undefined); }}
       />
       <MeterServiceModal
@@ -2755,7 +2859,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
       <AddMeterModal
         open={addMeterOpen}
         onClose={() => setAddMeterOpen(false)}
-        buildingUnits={building.units.map(u => ({
+        buildingUnits={bldg.units.map(u => ({
           key: u.key,
           no: u.no,
           floor: u.floor,
@@ -2763,14 +2867,14 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           tenant: u.tenant,
           meter: u.meter,
         }))}
-        nextMeterId={`M-0${(building.meters.length + 26).toString().padStart(2, '0')}`}
+        nextMeterId={`M-0${(bldg.meters.length + 26).toString().padStart(2, '0')}`}
         onAdd={(meter) => { console.log('New meter:', meter); }}
       />
       <AddUnitModal
         open={addUnitOpen}
         onClose={() => setAddUnitOpen(false)}
-        buildingFloors={building.floors}
-        existingUnitsCount={building.totalUnits}
+        buildingFloors={bldg.floors}
+        existingUnitsCount={bldg.totalUnits}
         onAdd={(units) => {
           console.log('New units to add:', units);
         }}
@@ -2787,7 +2891,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
       <NewRefillRequestModal
         open={newRefillOpen}
         onClose={() => setNewRefillOpen(false)}
-        tanks={(building.tanks ?? building.meters?.filter((m: any) => m.type === 'tank') ?? []).map((t: any) => ({
+        tanks={(bldg.tanks ?? bldg.meters?.filter((m: any) => m.type === 'tank') ?? []).map((t: any) => ({
           id: t.id || t.key,
           label: t.label || t.name || t.id || t.key,
           currentLevel: t.currentLevel ?? t.reading ?? 0,
