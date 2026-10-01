@@ -123,19 +123,19 @@ const Buildings: React.FC = () => {
   const kpis = [
     {
       title: 'إجمالي المباني',
-      value: buildingStats?.total ?? liveBuildings.length || 186,
+      value: (buildingStats?.total ?? liveBuildings.length) || 186,
       trend: +4.2, sub: 'مقارنة بالشهر الماضي',
       icon: <BankOutlined />, color: PRIMARY, bg: PRIMARY_LIGHT,
     },
     {
       title: 'مباني نشطة',
-      value: buildingStats?.active ?? liveBuildings.filter(b => b.status === 'Active').length || 171,
+      value: (buildingStats?.active ?? liveBuildings.filter(b => b.status === 'Active').length) || 171,
       trend: +2.1, sub: `${buildingStats ? Math.round((buildingStats.active / (buildingStats.total || 1)) * 100) : 92}% من الإجمالي`,
       icon: <CheckCircleOutlined />, color: '#1565c0', bg: '#e3f2fd',
     },
     {
       title: 'إجمالي الوحدات',
-      value: buildingStats?.totalUnits ?? liveBuildings.reduce((s, b) => s + (b.total_units || 0), 0) || 2356,
+      value: (buildingStats?.totalUnits ?? liveBuildings.reduce((s, b) => s + (b.total_units || 0), 0)) || 2356,
       trend: +8.5, sub: 'عبر جميع الإمارات',
       icon: <HomeOutlined />, color: '#6a1b9a', bg: '#f3e5f5',
     },
