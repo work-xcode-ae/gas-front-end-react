@@ -1,4 +1,5 @@
 import KpiCard from '../../components/KpiCard';
+import TableSkeleton from '../../components/TableSkeleton';
 import React, { useState, useEffect } from 'react';
 import { getBuildings, getBuildingUnits, getAmcContracts, getBuildingStats } from '../../api/buildings';
 import type { Building, BuildingUnit, AmcContract, BuildingStats } from '../../api/buildings';
@@ -13,7 +14,6 @@ import {
   EnvironmentOutlined, HomeOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
   NumberOutlined, ApartmentOutlined, FileTextOutlined, ShopOutlined, UserOutlined, PhoneOutlined, MailOutlined, IdcardOutlined, SafetyCertificateOutlined, UploadOutlined, BuildOutlined, StarFilled, StarOutlined, DatabaseOutlined, CalendarOutlined, UsergroupAddOutlined
 } from '@ant-design/icons';
-import KpiCard from '../../components/KpiCard';
 import ReactApexChart from 'react-apexcharts';
 
 const { Title, Text } = Typography;
@@ -174,7 +174,7 @@ const Buildings: React.FC = () => {
         vacant: 0,
         status: (b.status || 'Active').toLowerCase() === 'active' ? 'active' : 'inactive',
       }))
-    : mockData;
+    : [];
 
   const filtered = tableData.filter(r => {
     const matchSearch = !search || r.name.includes(search) || r.no.includes(search);
@@ -368,7 +368,20 @@ const Buildings: React.FC = () => {
             <Option value="inactive">غير نشط</Option>
           </Select>
         </div>
-        <Table dataSource={filtered} columns={columns} loading={dataLoading} pagination={{ pageSize: 10, showTotal: (t) => `إجمالي ${t} مبنى`, size: 'small' }} size="middle" scroll={{ x: true }} />
+        {dataLoading ? (
+          <TableSkeleton
+            rows={8}
+            colWidths={['10%', '22%', '12%', '10%', '14%', '16%', '16%']}
+          />
+        ) : (
+          <Table
+            dataSource={filtered}
+            columns={columns}
+            pagination={{ pageSize: 10, showTotal: (t) => `إجمالي ${t} مبنى`, size: 'small' }}
+            size="middle"
+            scroll={{ x: true }}
+          />
+        )}
       </Card>
 
       {/* ── ADD BUILDING MODAL (Multi-step) ── */}
