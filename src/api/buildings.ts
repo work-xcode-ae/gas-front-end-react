@@ -75,7 +75,7 @@ export async function getBuildings(): Promise<Building[]> {
       'total_floors', 'total_units', 'total_tanks', 'customer',
       'civil_defense_number', 'civil_defense_expiry', 'civil_defense_status',
     ]),
-    limit: 500,
+    limit: 200,
     order_by: 'building_code asc',
   });
   return res.data.data || [];
@@ -121,6 +121,18 @@ export async function getAmcContracts(building?: string): Promise<AmcContract[]>
     ...(filters.length ? { filters: JSON.stringify(filters) } : {}),
     limit: 500,
     order_by: 'start_date desc',
+  });
+  return res.data.data || [];
+}
+
+
+/** Fetch ALL units for ALL buildings in a single API call (no building filter). */
+export async function getAllBuildingUnits(): Promise<BuildingUnit[]> {
+  const res = await frappe.getList('Building Unit', {
+    fields: JSON.stringify(['name','unit_number','building','floor','status',
+      'unit_type','gas_meter','current_tenant','monthly_rent']),
+    limit: 2000,
+    order_by: 'building asc, floor asc, unit_number asc',
   });
   return res.data.data || [];
 }

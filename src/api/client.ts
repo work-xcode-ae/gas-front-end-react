@@ -35,15 +35,43 @@ client.interceptors.response.use(
   }
 );
 
+
+// ── Simple GET cache — avoids duplicate requests within 30 seconds ──────────
+const _cache = new Map<string, { data: unknown; ts: number }>();
+const CACHE_TTL = 30_000; // 30 s
+
+function cacheKey(url: string, params?: Record<string, unknown>): string {
+  return url + (params ? '?' + JSON.stringify(params) : '');
+}
+
+function cachedGet(url: string, params?: Record<string, unknown>) {
+  const key = cacheKey(url, params);
+  const hit = _cache.get(key);
+  if (hit && Date.now() - hit.ts < CACHE_TTL) {
+    return Promise.resolve({ data: hit.data });
+  }
+  return client.get(url, params ? { params } : undefined).then(res => {
+    _cache.set(key, { data: res.data, ts: Date.now() });
+    return res;
+  });
+}
+
+/** Call this after a mutation to invalidate cached list data for a doctype. */
+export function invalidateCache(doctype?: string) {
+  if (!doctype) { _cache.clear(); return; }
+  const prefix = `/api/resource/${encodeURIComponent(doctype)}`;
+  _cache.forEach((_, key) => { if (key.startsWith(prefix)) _cache.delete(key); });
+}
+
 export const frappe = {
   get: (method: string, args: Record<string, unknown> = {}) =>
     client.get(`/api/method/${method}`, { params: args }),
   post: (method: string, args: Record<string, unknown> = {}) =>
     client.post(`/api/method/${method}`, args),
   getDoc: (doctype: string, name: string) =>
-    client.get(`/api/resource/${encodeURIComponent(doctype)}/${encodeURIComponent(name)}`),
+    cachedGet(`/api/resource/${encodeURIComponent(doctype)}/${encodeURIComponent(name)}`),
   getList: (doctype: string, params: Record<string, unknown> = {}) =>
-    client.get(`/api/resource/${encodeURIComponent(doctype)}`, { params }),
+    cachedGet(`/api/resource/${encodeURIComponent(doctype)}`, params),
   createDoc: (doctype: string, data: Record<string, unknown>) =>
     client.post(`/api/resource/${encodeURIComponent(doctype)}`, data),
   updateDoc: (doctype: string, name: string, data: Record<string, unknown>) =>

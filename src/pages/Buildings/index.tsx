@@ -1,7 +1,7 @@
 import KpiCard from '../../components/KpiCard';
 import TableSkeleton from '../../components/TableSkeleton';
 import React, { useState, useEffect } from 'react';
-import { getBuildings, getBuildingUnits, getAmcContracts, getBuildingStats } from '../../api/buildings';
+import { getBuildings, getBuildingUnits, getAllBuildingUnits, getAmcContracts, getBuildingStats } from '../../api/buildings';
 import type { Building, BuildingUnit, AmcContract, BuildingStats } from '../../api/buildings';
 import BuildingProfile from './BuildingProfile';
 import {
@@ -98,25 +98,17 @@ const Buildings: React.FC = () => {
 
   useEffect(() => {
     setDataLoading(true);
+    // 3 parallel requests — avoids N+1 per-building unit calls
     Promise.all([
       getBuildings(),
+      getAllBuildingUnits(),
       getAmcContracts(),
-    ]).then(async ([buildings, amc]) => {
+    ]).then(async ([buildings, allUnits, amc]) => {
       setLiveBuildings(buildings);
+      setLiveUnits(allUnits);
       setLiveAmc(amc);
-      // Load all units to compute occupancy stats
-      const stats = await getBuildingStats(buildings, []);
+      const stats = await getBuildingStats(buildings, allUnits);
       setBuildingStats(stats);
-      // Load units for occupancy (best-effort)
-      if (buildings.length <= 20) {
-        const unitResults = await Promise.all(
-          buildings.map(b => getBuildingUnits(b.name).catch(() => []))
-        );
-        const allUnits = unitResults.flat();
-        setLiveUnits(allUnits);
-        const statsWithUnits = await getBuildingStats(buildings, allUnits);
-        setBuildingStats(statsWithUnits);
-      }
     }).catch(err => console.warn('Buildings API error:', err))
       .finally(() => setDataLoading(false));
   }, []);
