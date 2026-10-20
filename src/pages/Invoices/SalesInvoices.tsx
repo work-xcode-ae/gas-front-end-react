@@ -10,6 +10,7 @@ import dayjs, { type Dayjs } from 'dayjs';
 import { API_BASE, api, errorMessage, type Paged } from '../../api/client';
 import { HistoryButton, useTrackView } from '../../components/history/RecordHistory';
 import { useAuth } from '../../auth/AuthContext';
+import { openPrintWindow, printInvoice } from '../../utils/printDocs';
 import {
   PRIMARY, DARK, GOLD, money, INVOICE_STATUS, INVOICE_TYPES, PRINT_CSS, CustomerSelect, BuildingSelect, RecordPaymentModal, methodLabel,
   useTaxOptions, syncTaxLines, newTaxLine, TaxRateSelect,
@@ -64,7 +65,7 @@ export function InvoiceDrawer({ id, onClose, onChanged, startCancel }: { id: num
       extra={inv && (
         <Space wrap className="no-print">
           <HistoryButton entityType="Invoice" id={inv.id} title={`فاتورة ${inv.invoiceNo}`} size="middle" />
-          <Button icon={<PrinterOutlined />} onClick={() => window.print()}>طباعة / PDF</Button>
+          <Button icon={<PrinterOutlined />} onClick={() => printInvoice(openPrintWindow(), inv.id)}>طباعة / PDF</Button>
           {inv.status === 'draft' && can('invoices.post') && <Button type="primary" icon={<CheckOutlined />} loading={busy} onClick={() => act(() => api(`/invoices/${inv.id}/issue`, { method: 'POST' }), 'تم إصدار الفاتورة')}>إصدار</Button>}
           {inv.status === 'draft' && can('invoices.manage') && (
             <Popconfirm title="حذف المسودة؟" okText="حذف" cancelText="إلغاء" onConfirm={() => act(async () => { await api(`/invoices/${inv.id}`, { method: 'DELETE' }); onClose(); }, 'تم حذف المسودة')}>
@@ -476,8 +477,9 @@ const SalesInvoices: React.FC<{ embedded?: boolean }> = ({ embedded }) => {
             { title: 'الحالة', dataIndex: 'status', render: (s, r) => (
               <div><Tag color={INVOICE_STATUS[s ?? '']?.color}>{INVOICE_STATUS[s ?? '']?.label ?? r.statusLabel}</Tag>
                 {s === 'overdue' && <div style={{ fontSize: 10, color: '#ff4d4f' }}>{dayjs().diff(dayjs(r.dueDate), 'day')} يوم</div>}</div>) },
-            { title: '', key: 'a', width: 80, render: (_, r) => (
+            { title: '', key: 'a', width: 110, render: (_, r) => (
               <Space size={0}>
+                <Tooltip title="طباعة الفاتورة"><Button size="small" type="text" icon={<PrinterOutlined />} onClick={e => { e.stopPropagation(); printInvoice(openPrintWindow(), r.id); }} /></Tooltip>
                 {r.balance > 0 && r.status !== 'draft' && r.status !== 'cancelled' && can('payments.manage') && (
                   <Tooltip title="تسجيل دفعة"><Button size="small" type="text" icon={<DollarOutlined />} onClick={e => { e.stopPropagation(); setPayFor(r); }} /></Tooltip>)}
                 {r.status !== 'draft' && r.status !== 'cancelled' && can('invoices.cancel') && (

@@ -299,7 +299,7 @@ export default function Vouchers({ type }: { type: VoucherType }) {
   const { can } = useAuth();
   const [data, setData] = useState<{ items: Row[]; total: number; count: number; byParty: any[]; byMethod: any[] } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [range, setRange] = useState<[Dayjs, Dayjs] | null>([dayjs().startOf('month'), dayjs()]);
+  const [range, setRange] = useState<[Dayjs, Dayjs] | null>([dayjs().startOf('year'), dayjs()]);
   const [party, setParty] = useState<Party | 'all'>('all');
   const [search, setSearch] = useState('');
   const [showCancelled, setShowCancelled] = useState(true);

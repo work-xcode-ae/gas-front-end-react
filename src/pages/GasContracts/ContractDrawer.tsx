@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Drawer, Tabs, Descriptions, Tag, Table, Button, Space, Typography, Spin, Empty, Row, Col, Modal, Form, InputNumber, DatePicker, Input, Checkbox, message, Alert, Select, Popconfirm } from 'antd';
-import { SyncOutlined, StopOutlined, FileAddOutlined, PlayCircleOutlined, HomeOutlined, UserOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { SyncOutlined, StopOutlined, FileAddOutlined, PlayCircleOutlined, HomeOutlined, UserOutlined, PlusOutlined, DeleteOutlined, PrinterOutlined } from '@ant-design/icons';
+import { openPrintWindow, printSupplyContract } from '../../utils/printDocs';
 import dayjs from 'dayjs';
 import { api, errorMessage } from '../../api/client';
 import { HistoryButton, useTrackView } from '../../components/history/RecordHistory';
@@ -106,6 +107,7 @@ export default function ContractDrawer({ contractId, onClose, onChanged, onOpenU
       extra={c && (
         <Space wrap>
           <HistoryButton entityType="SupplyContract" id={contractId} title={`عقد ${c.contractNo}`} size="middle" />
+          <Button icon={<PrinterOutlined />} onClick={() => printSupplyContract(openPrintWindow(), c.id)}>طباعة العقد</Button>
           {canManage && <>
           {(status === 'draft' || status === 'pending') && <Button type="primary" icon={<PlayCircleOutlined />} onClick={() => openAction('activate')}>تفعيل</Button>}
           {isLive && can('invoices.manage') && <Button icon={<FileAddOutlined />} onClick={() => openAction('invoice')}>إصدار فاتورة</Button>}

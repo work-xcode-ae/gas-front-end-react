@@ -212,7 +212,7 @@ const UnitActionModal: React.FC<Props> = ({ action, unit, onClose, onDone, onSav
         })
         .catch(() => setMeters([]));
     }
-    if (action === 'reading') form.setFieldsValue({ readingDate: dayjs(), method: 'manual', allowReset: false });
+    if (action === 'reading') form.setFieldsValue({ readingDate: dayjs(), method: 'manual', allowReset: false, issueInvoice: !!unit.contractId, printInvoice: false });
     if (action === 'service' || action === 'services') {
       form.setFieldsValue({ srType: undefined, priority: 'medium', visitSlot: 'any' });
       setSrTab(action === 'services' ? 'track' : 'new'); setSrHighlight(null); setSrAssignKind('none'); setSrAssignId(undefined);
@@ -242,7 +242,7 @@ const UnitActionModal: React.FC<Props> = ({ action, unit, onClose, onDone, onSav
     try { await form.validateFields(); } catch { return; }
     const v = form.getFieldsValue(true);
     // pop-up blockers only allow window.open directly inside the click → open it now, fill it after saving
-    const printWin = ((action === 'payment' || action === 'invoice') && v.print) || (action === 'terminate' && v.finalInvoice && v.print) ? openPrintWindow() : null;
+    const printWin = ((action === 'payment' || action === 'invoice') && v.print) || (action === 'terminate' && v.finalInvoice && v.print) || (action === 'reading' && v.issueInvoice && v.printInvoice && unit.contractId) ? openPrintWindow() : null;
     const ctx = { unitNo: unit.no, buildingName: unit.buildingName, tenantPhone };
     let next: UnitAction | undefined;
     setSaving(true);
@@ -291,10 +291,20 @@ const UnitActionModal: React.FC<Props> = ({ action, unit, onClose, onDone, onSav
         const picked = v.readingDate as dayjs.Dayjs;
         // today → the current time (a later hour would be in the future); a past day → noon of that day
         const date = picked.isSame(dayjs(), 'day') ? dayjs() : picked.hour(12).minute(0).second(0);
-        const r = await api<{ consumption?: number }>(`/meters/${unit.meterId}/readings`, { body: {
+        const r = await api<{ consumption?: number; invoice?: { id: number; invoiceNo: string; totalAmount: number } | null; invoiceWarning?: string | null }>(`/meters/${unit.meterId}/readings`, { body: {
           readingValue: v.readingValue, readingDate: date.toISOString(), method: v.method, notes: v.notes?.trim() || undefined, allowReset: !!v.allowReset,
+          issueInvoice: !!(unit.contractId && v.issueInvoice),
         } });
-        message.success(`تم تسجيل القراءة${r?.consumption != null ? ` — استهلاك ${r.consumption} م³` : ''}`);
+        const used = r?.consumption != null ? ` — استهلاك ${r.consumption} م³` : '';
+        if (r?.invoice) {
+          message.success(`تم تسجيل القراءة${used} وإصدار الفاتورة ${r.invoice.invoiceNo} — ${Number(r.invoice.totalAmount).toLocaleString()} د.إ`, 6);
+          if (v.printInvoice && printWin) printInvoice(printWin, r.invoice.id, ctx);
+          else printWin?.close();
+        } else {
+          message.success(`تم تسجيل القراءة${used}`);
+          if (r?.invoiceWarning) message.warning(r.invoiceWarning, 6);
+          printWin?.close();
+        }
       }
       if (action === 'service' || action === 'services') {
         if (srAssignKind !== 'none' && !srAssignId) { message.warning('اختر الفني / المقاول أو «بدون إسناد الآن»'); setSaving(false); return; }
@@ -711,6 +721,25 @@ const UnitActionModal: React.FC<Props> = ({ action, unit, onClose, onDone, onSav
                     </div>
                   </Col>
                   <Col span={24}><Form.Item name="notes" label="ملاحظات"><Input.TextArea rows={2} placeholder="اختياري" /></Form.Item></Col>
+                  {unit.contractId ? (<>
+                    <Col xs={24} md={12}>
+                      <div className="ua-toggle">
+                        <div><div className="ua-toggle-title">إصدار فاتورة الاستهلاك مباشرة</div><div className="ua-toggle-desc">تُفوتر كل القراءات غير المفوترة للعقد حتى هذه القراءة × سعر الغاز</div></div>
+                        <Form.Item name="issueInvoice" valuePropName="checked" noStyle><Switch /></Form.Item>
+                      </div>
+                    </Col>
+                    <Col xs={24} md={12}>
+                      <Form.Item noStyle shouldUpdate={(a, b) => a.issueInvoice !== b.issueInvoice}>
+                        {({ getFieldValue }) => getFieldValue('issueInvoice') && (
+                          <div className="ua-toggle">
+                            <div><div className="ua-toggle-title">طباعة الفاتورة بعد الإصدار</div><div className="ua-toggle-desc">فاتورة ضريبية جاهزة للعميل</div></div>
+                            <Form.Item name="printInvoice" valuePropName="checked" noStyle><Switch /></Form.Item>
+                          </div>)}
+                      </Form.Item>
+                    </Col>
+                  </>) : (
+                    <Col span={24}><Alert type="info" showIcon style={{ borderRadius: 10 }} message="لا يوجد عقد نشط على الوحدة — تُسجل القراءة بدون فاتورة." /></Col>
+                  )}
                 </Row>
               </Section>
             ) : <Alert type="warning" showIcon style={{ marginBottom: 14, borderRadius: 10 }} message="لا يوجد عداد مركّب في هذه الوحدة — قم بتركيب عداد أولاً." />

@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { openPrintWindow, printSupplyContract } from '../../utils/printDocs';
 import {
   Drawer, Button, Tag, Divider, Row, Col,
   Typography, Space, Progress, Alert, 
@@ -71,6 +72,8 @@ const GasContractDrawer: React.FC<Props> = ({ open, contract, buildingName, onCl
     : null;
 
   const handlePrint = () => {
+    // contracts saved in the system: the full printable contract (parties, fees, terms, signatures)
+    if (Number.isFinite(Number(contract.id))) { printSupplyContract(openPrintWindow(), Number(contract.id)); return; }
     const w = window.open('', '_blank');
     if (!w || !printRef.current) return;
     w.document.write(`

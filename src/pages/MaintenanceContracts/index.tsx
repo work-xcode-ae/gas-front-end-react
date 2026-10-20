@@ -4,7 +4,7 @@ import {
 } from 'antd';
 import {
   ToolOutlined, PlusOutlined, CheckCircleOutlined, WarningOutlined, CalendarOutlined, FileDoneOutlined, ReloadOutlined, EditOutlined,
-  UploadOutlined, MoreOutlined, ThunderboltOutlined, ClockCircleOutlined, SafetyCertificateOutlined,
+  UploadOutlined, MoreOutlined, ThunderboltOutlined, ClockCircleOutlined, SafetyCertificateOutlined, PrinterOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { api, errorMessage, type Paged } from '../../api/client';
@@ -12,6 +12,7 @@ import { useAuth } from '../../auth/AuthContext';
 import AmcInvoicesPanel from '../Buildings/AmcInvoicesPanel';
 import { RecordVisitModal, UploadReportModal } from '../Buildings/AmcVisitModals';
 import AddAmcContractModal from '../Buildings/AddAmcContractModal';
+import { openPrintWindow, printAmcContract } from '../../utils/printDocs';
 import { PageHeader, KpiRow, useBuildings, buildingLabel, PRIMARY } from './shared';
 
 const { Text } = Typography;
@@ -185,10 +186,13 @@ const MaintenanceContractsPage: React.FC = () => {
       {/* ── contract drawer ── */}
       <Drawer open={!!sel} onClose={() => setSelId(null)} width={Math.min(960, window.innerWidth - 40)} destroyOnClose
         title={sel && <Space wrap><SafetyCertificateOutlined style={{ color: PRIMARY }} /><span>{sel.contractNo}</span><Tag color={STATUS[sel.status]?.color}>{STATUS[sel.status]?.label}</Tag><Text type="secondary" style={{ fontSize: 12 }}>{sel.building}</Text></Space>}
-        extra={sel && canManage && <Space>
+        extra={sel && <Space>
+          <Button size="small" icon={<PrinterOutlined />} onClick={() => printAmcContract(openPrintWindow(), sel.id)}>طباعة العقد</Button>
+          {canManage && <>
           <Button size="small" icon={<CalendarOutlined />} onClick={() => setVisitFor(sel)}>تسجيل زيارة</Button>
           <Button size="small" icon={<UploadOutlined />} onClick={() => setReportFor(sel)}>رفع تقرير</Button>
           <Button size="small" type="primary" icon={<EditOutlined />} onClick={() => openRenew(sel)}>تجديد</Button>
+          </>}
         </Space>}>
         {sel && (
           <Tabs items={[

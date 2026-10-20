@@ -25,6 +25,7 @@ import MeterServiceModal from './MeterServiceModal';
 import AddTenantModal from './AddTenantModal';
 import AddGasContractModal from './AddGasContractModal';
 import GasContractDrawer from './GasContractDrawer';
+import { openPrintWindow, printSupplyContract, printAmcContract } from '../../utils/printDocs';
 import TenantInvoicesDrawer from './TenantInvoicesDrawer';
 import TenantProfileDrawer from './TenantProfileDrawer';
 import AddAmcContractModal from './AddAmcContractModal';
@@ -1427,6 +1428,8 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
                           مقدم الخدمة: {c.vendor}{c.vendorContact ? ` · ${c.vendorContact}` : ''}{c.vendorEmail ? ` · ${c.vendorEmail}` : ''}
                         </div>
                       )}
+                      <Button size="small" block icon={<PrinterOutlined />} style={{ borderRadius: 6, fontSize: 11, marginTop: 8 }}
+                        onClick={() => printAmcContract(openPrintWindow(), Number(c.id))}>طباعة العقد</Button>
                       <Divider style={{ margin: '8px 0' }} />
                       {isExpired ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -1562,15 +1565,16 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
               )},
               { title: 'الوديعة', dataIndex: 'depositPaid', width: 80, render: (v: boolean) => v ? <Tag color="success" style={{ fontSize: 10 }}>مسددة</Tag> : <Tag color="error" style={{ fontSize: 10 }}>معلقة</Tag> },
               { title: 'الدفع', dataIndex: 'paymentStatus', width: 80, render: (v: string) => <Tag color={payStatusMap[v]?.color} style={{ fontSize: 10 }}>{payStatusMap[v]?.label}</Tag> },
-              { title: '', width: 80, render: (_: any, r: any) => (
-                r.status === 'expired'
+              { title: '', width: 120, render: (_: any, r: any) => (<Space size={6}>
+                <Tooltip title="طباعة العقد"><Button size="small" type="text" icon={<PrinterOutlined />} onClick={() => printSupplyContract(openPrintWindow(), Number(r.id))} /></Tooltip>
+                {r.status === 'expired'
                   ? <Space size={4}>
                       <Button size="small" type="link" style={{ padding: 0, fontSize: 11 }} icon={<PlusOutlined />}
                         onClick={() => buildingId && r.unitId ? openUnitFor(r.unitId, 'tenant') : setAddContractOpen(true)}>جديد</Button>
                       <Button size="small" type="link" style={{ padding: 0, fontSize: 11, color: '#fa8c16' }} icon={<EditOutlined />} onClick={() => openRenew('supply', r)}>تجديد</Button>
                     </Space>
-                  : <Button size="small" type="link" style={{ padding: 0, fontSize: 11 }} onClick={() => { if (buildingId && r.unitId) openUnitFor(r.unitId); else { setSelectedContract(r as SupplyContractRecord); setContractDrawerOpen(true); } }}>تفاصيل</Button>
-              )},
+                  : <Button size="small" type="link" style={{ padding: 0, fontSize: 11 }} onClick={() => { if (buildingId && r.unitId) openUnitFor(r.unitId); else { setSelectedContract(r as SupplyContractRecord); setContractDrawerOpen(true); } }}>تفاصيل</Button>}
+              </Space>)},
             ]}
           />
         </div>
