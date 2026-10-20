@@ -1,14 +1,18 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Modal, Steps, Form, Input, InputNumber, Select, DatePicker,
-  Button, Row, Col, Typography, Tag, Divider, Switch, Space,
-  Alert, Card, message, Radio, Table,
+  Button, Row, Col, Typography, Tag, Switch, Space,
+  Alert, message, Radio, Table,
 } from 'antd';
+import ContractTermsPicker from '../../components/ContractTermsPicker';
+import { toTermInputs, type ContractTermItem } from '../../api/terms';
+import { api, errorMessage } from '../../api/client';
+import { buildingsApi } from '../../api/buildings';
 import {
   UserOutlined, ToolOutlined, CalendarOutlined, DollarOutlined,
-  CheckCircleOutlined, SafetyCertificateOutlined,
+  CheckCircleOutlined, 
   CloseOutlined, FileTextOutlined, BankOutlined,
-  InfoCircleOutlined, FileProtectOutlined, PlusOutlined, DeleteOutlined, EditOutlined, ExclamationCircleOutlined,
+  FileProtectOutlined, PlusOutlined, DeleteOutlined, ExclamationCircleOutlined, PhoneOutlined, MailOutlined, IdcardOutlined, StarFilled,
 } from '@ant-design/icons';
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
@@ -46,9 +50,18 @@ export interface AmcContract {
 
 interface Props {
   open: boolean; buildingName: string;
+  /** live building: owners are loaded from it and the contract is saved to the API */
+  buildingId?: number;
   ownerName?: string; ownerPhone?: string; ownerEmail?: string;
   onClose: () => void; onSave: (c: AmcContract) => void;
 }
+
+/** Owner row of GET /buildings/{id} */
+interface OwnerOpt {
+  id: number; partyId: number; name?: string; nameEn?: string | null; nameAr?: string | null; partyType?: string | null;
+  emiratesId?: string | null; tradeLicenseNo?: string | null; phone?: string | null; email?: string | null; ownershipPercentage?: number | null; isPrimary: boolean;
+}
+interface CompanyInfo { name?: string; nameAr?: string; nameEn?: string; phone?: string | null; email?: string | null; address?: string | null; trn?: string | null }
 
 const SERVICE_CATALOGUE = [
   { id: 'pipe_inspect',  label: 'فحص مواسير الغاز وكشف التسريبات',   category: 'safety',  recommended: true },
@@ -71,38 +84,13 @@ const EXCLUDED_CATALOGUE = [
   { id: 'ex_civil',       label: 'الأعمال المدنية والتكسير' },
 ];
 
-const TERMS_CATALOGUE = [
-  { id: 't01', category: 'general',   text: 'يلتزم الطرف الأول بتسهيل وصول فريق الطرف الثاني إلى المبنى في المواعيد المتفق عليها.' },
-  { id: 't02', category: 'general',   text: 'يبدأ سريان هذا العقد من تاريخ توقيع الطرفين ويُعدّ ساري المفعول لمدة سنة كاملة.' },
-  { id: 't03', category: 'general',   text: 'يحق لأي من الطرفين إنهاء العقد بإشعار كتابي مدته 30 يوماً في حال إخلال الطرف الآخر ببنوده.' },
-  { id: 't04', category: 'payment',   text: 'يُسدَّد مبلغ العقد وفق الجدول المتفق عليه — أي تأخر يترتب عليه غرامة 2% شهرياً على الرصيد المتأخر.' },
-  { id: 't05', category: 'payment',   text: 'يُعدّ العقد مجمداً حتى استلام الطرف الثاني للدفعة الأولى المتفق عليها.' },
-  { id: 't06', category: 'service',   text: 'تُنجز الزيارات الدورية خلال 3 أيام عمل من تاريخها المقرر — التأخير غير المبرر يُعتبر خرقاً للعقد.' },
-  { id: 't07', category: 'service',   text: 'يتعهد الطرف الثاني بإصدار تقرير مفصّل لكل زيارة صيانة خلال 48 ساعة من إتمامها.' },
-  { id: 't08', category: 'service',   text: 'في حالات الطوارئ، يستجيب الطرف الثاني خلال وقت الاستجابة المتفق عليه من لحظة الإبلاغ.' },
-  { id: 't09', category: 'liability', text: 'لا يتحمل الطرف الثاني مسؤولية الأضرار الناجمة عن سوء الاستخدام أو الحوادث الخارجة عن نطاق الصيانة المتفق عليها.' },
-  { id: 't10', category: 'liability', text: 'تقتصر مسؤولية الطرف الثاني التعويضية بحد أقصى قيمة عقد الصيانة السنوي.' },
-  { id: 't11', category: 'renewal',   text: 'يُجدَّد العقد تلقائياً لمدة مماثلة ما لم يُخطر أحد الطرفين الآخر بعدم التجديد قبل 60 يوماً من انتهائه.' },
-  { id: 't12', category: 'renewal',   text: 'عند التجديد، يحق للطرف الثاني مراجعة الرسوم بحد أقصى 5% وفق مؤشر التضخم السنوي المعتمد.' },
-  { id: 't13', category: 'dispute',   text: 'يُحكم هذا العقد وفق قوانين إمارة أبوظبي — أي نزاع يُحال إلى القضاء الإماراتي المختص.' },
-  { id: 't14', category: 'dispute',   text: 'يسعى الطرفان أولاً إلى التسوية الودية لأي نزاع خلال 30 يوماً قبل اللجوء إلى أي إجراء قانوني.' },
-];
-
-const TERMS_CATEGORIES: Record<string, { label: string; color: string }> = {
-  general:   { label: 'أحكام عامة',       color: 'blue' },
-  payment:   { label: 'الدفع والرسوم',    color: 'gold' },
-  service:   { label: 'مستوى الخدمة',    color: 'green' },
-  liability: { label: 'المسؤولية',        color: 'orange' },
-  renewal:   { label: 'التجديد والإنهاء', color: 'purple' },
-  dispute:   { label: 'تسوية النزاعات',   color: 'red' },
-};
-
+/** values = VISIT_FREQUENCY codes of the API */
 const VISIT_FREQ_OPTIONS = [
-  { value: 'monthly',   label: 'شهري',       count: 12 },
-  { value: 'bimonthly', label: 'كل شهرين',   count: 6  },
-  { value: 'quarterly', label: 'ربع سنوي',    count: 4  },
-  { value: 'biannual',  label: 'نصف سنوي',   count: 2  },
-  { value: 'annual',    label: 'سنوي',        count: 1  },
+  { value: 'monthly',     label: 'شهري',       count: 12 },
+  { value: 'bimonthly',   label: 'كل شهرين',   count: 6  },
+  { value: 'quarterly',   label: 'ربع سنوي',    count: 4  },
+  { value: 'semi_annual', label: 'نصف سنوي',   count: 2  },
+  { value: 'annual',      label: 'سنوي',        count: 1  },
 ];
 
 const PAYMENT_FREQ_OPTIONS = [
@@ -147,11 +135,11 @@ const STEPS = [
   { title: 'المراجعة',          icon: <CheckCircleOutlined /> },
 ];
 const AddAmcContractModal: React.FC<Props> = ({
-  open, buildingName, ownerName, ownerPhone, ownerEmail, onClose, onSave,
+  open, buildingName, buildingId, ownerName, ownerPhone, ownerEmail, onClose, onSave,
 }) => {
   const [step, setStep] = useState(0);
   const [closeConfirmOpen, setCloseConfirmOpen] = useState(false);
-  const isDirty = () => step > 0;
+  
   const [form1] = Form.useForm();
   const [form3] = Form.useForm();
   const [form4] = Form.useForm();
@@ -166,13 +154,35 @@ const AddAmcContractModal: React.FC<Props> = ({
   const [customExcluded, setCustomExcluded] = useState<string[]>([]);
   const [customIncInput, setCustomIncInput] = useState('');
   const [customExcInput, setCustomExcInput] = useState('');
-  const [selectedTerms, setSelectedTerms] = useState<string[]>([]);
-  const [customTerms, setCustomTerms] = useState<string[]>([]);
-  const [customTermInput, setCustomTermInput] = useState('');
+  /** terms from Settings → الشروط والأحكام (type «amc»), editable for this contract; undefined → defaults pre-selected */
+  const [amcTerms, setAmcTerms] = useState<ContractTermItem[] | undefined>(undefined);
+  const selectedTerms = (amcTerms ?? []).filter(t => t.templateId).map(t => t.text);
+  const customTerms = (amcTerms ?? []).filter(t => !t.templateId).map(t => t.text);
+  const [saving, setSaving] = useState(false);
+  /** first party = one of the building's owners */
+  const [owners, setOwners] = useState<OwnerOpt[] | null>(null);
+  const [ownerId, setOwnerId] = useState<number | undefined>();
+  const owner = owners?.find(o => o.id === ownerId);
+  /** second party = our company (from the company record) */
+  const [company, setCompany] = useState<CompanyInfo | null>(null);
+  const co = {
+    name: company?.nameAr ?? company?.name ?? OUR_COMPANY.name, nameEn: company?.nameEn ?? OUR_COMPANY.nameEn,
+    phone: company?.phone ?? OUR_COMPANY.phone, email: company?.email ?? OUR_COMPANY.email,
+    address: company?.address ?? OUR_COMPANY.address, trn: company?.trn ?? OUR_COMPANY.trn,
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    api<CompanyInfo | null>('/amc-contracts/our-company').then(setCompany).catch(() => setCompany(null));
+    if (!buildingId) { setOwners([]); return; }
+    setOwners(null);
+    buildingsApi.get<{ owners: OwnerOpt[] }>(buildingId)
+      .then(b => { setOwners(b.owners ?? []); setOwnerId((b.owners ?? []).find(o => o.isPrimary)?.id ?? b.owners?.[0]?.id); })
+      .catch(() => setOwners([]));
+  }, [open, buildingId]);
 
   const refreshPreview = () => {
-    const v4 = form4.getFieldsValue();
-    const v3 = form3.getFieldsValue();
+    const v4 = form4.getFieldsValue(true);
     if (v4?.startDate && v4?.annualValue) {
       setPaymentPreview(buildPaymentSchedule(v4.startDate, v4.annualValue, v4.paymentFreq ?? 'annual'));
     }
@@ -180,7 +190,10 @@ const AddAmcContractModal: React.FC<Props> = ({
 
   const handleNext = async () => {
     try {
-      if (step === 0) await form1.validateFields();
+      if (step === 0) {
+        if (buildingId && !owner) { message.warning(owners?.length ? 'اختر المالك (الطرف الأول)' : 'أضف مالكاً للمبنى أولاً'); return; }
+        if (!buildingId) await form1.validateFields();
+      }
       if (step === 2) await form3.validateFields();
       if (step === 3) { await form4.validateFields(); refreshPreview(); }
       setStep(s => s + 1);
@@ -195,8 +208,9 @@ const AddAmcContractModal: React.FC<Props> = ({
     setPaymentPreview([]);
     setCustomIncluded([]); setCustomExcluded([]);
     setCustomIncInput(''); setCustomExcInput('');
-    setSelectedTerms([]); setCustomTerms([]); setCustomTermInput('');
+    setAmcTerms(undefined);
     setCloseConfirmOpen(false);
+    setSaving(false);
     onClose();
   };
 
@@ -204,39 +218,68 @@ const AddAmcContractModal: React.FC<Props> = ({
     setCloseConfirmOpen(true);
   };
 
-  const handleSave = () => {
-    const v1 = form1.getFieldsValue();
-    const v3 = form3.getFieldsValue();
-    const v4 = form4.getFieldsValue();
-    const start: Dayjs = v4.startDate;
+  const handleSave = async () => {
+    // the step forms are unmounted once you leave their step → read the whole store
+    const v1 = form1.getFieldsValue(true);
+    const v3 = form3.getFieldsValue(true);
+    const v4 = form4.getFieldsValue(true);
+    const start: Dayjs | undefined = v4.startDate;
+    if (!start || !v4.annualValue) { message.warning('أكمل خطوة الرسوم والدفعات (تاريخ البداية والقيمة السنوية)'); setStep(3); return; }
     const end: Dayjs = v4.endDate ?? start.add(1, 'year').subtract(1, 'day');
+    if (!end.isAfter(start)) { message.warning('تاريخ الانتهاء يجب أن يكون بعد البداية'); setStep(3); return; }
     const visitFreq = v3.visitFrequency ?? 'quarterly';
-    const visitOpt = VISIT_FREQ_OPTIONS.find(o => o.value === visitFreq)!;
+    const visitOpt = VISIT_FREQ_OPTIONS.find(o => o.value === visitFreq) ?? VISIT_FREQ_OPTIONS[2];
     const schedule = buildVisitSchedule(start, visitFreq);
     const payments = buildPaymentSchedule(start, v4.annualValue, v4.paymentFreq ?? 'annual');
+    const scope = [...selectedServices.map(id => SERVICE_CATALOGUE.find(x => x.id === id)!.label), ...customIncluded];
+    const excluded = [...excludedServices.map(id => EXCLUDED_CATALOGUE.find(x => x.id === id)!.label), ...customExcluded];
+    const pref = [v3.preferredDay ? `اليوم المفضل: ${v3.preferredDay}` : null, v3.preferredTime ? `الوقت المفضل: ${v3.preferredTime}` : null].filter(Boolean).join(' — ');
+    const notes = [v3.notes?.trim(), pref || null].filter(Boolean).join('\n') || undefined;
+
+    let contractNo = `AMC-${dayjs().year()}-${String(Date.now()).slice(-4)}`;
+    let id = contractNo;
+    if (buildingId) {
+      setSaving(true);
+      try {
+        const r = await api<{ id: number; contractNo: string }>('/amc-contracts', { body: {
+          buildingId, vendorId: null, ownerPartyId: owner?.partyId,
+          startDate: start.format('YYYY-MM-DD'), endDate: end.format('YYYY-MM-DD'), annualValue: v4.annualValue,
+          visitFrequency: visitFreq, visitsTotal: visitOpt.count, responseTimeHours: parseInt(String(v3.responseTime ?? '4h'), 10) || null,
+          emergencyIncluded: !!v3.emergencyIncluded, notes,
+          scope, excludedScope: excluded,
+          terms: toTermInputs(amcTerms ?? []).map(t => ({ type: t.category, text: t.text, templateId: t.templateId })),
+          paymentSchedule: payments.map(p => ({ label: p.label, dueDate: p.dueDate, amount: p.amount })),
+          generateVisits: true, autoPaymentSchedule: false,
+        } });
+        contractNo = r.contractNo; id = String(r.id);
+      } catch (e) {
+        message.error(errorMessage(e), 8);
+        setSaving(false);
+        return;
+      }
+      setSaving(false);
+    }
     const contract: AmcContract = {
-      id: `AMC-${dayjs().year()}-${String(Date.now()).slice(-4)}`,
-      contractNo: `AMC-BLD-${dayjs().year()}-${String(Date.now()).slice(-3)}`,
-      vendor: OUR_COMPANY.name, vendorContact: OUR_COMPANY.phone, vendorEmail: OUR_COMPANY.email,
-      ownerName: v1.ownerName ?? ownerName ?? '',
-      ownerPhone: v1.ownerPhone ?? ownerPhone ?? '',
-      ownerEmail: v1.ownerEmail ?? ownerEmail ?? '',
+      id, contractNo,
+      vendor: co.name, vendorContact: co.phone ?? '', vendorEmail: co.email ?? '',
+      ownerName: owner?.name ?? v1.ownerName ?? ownerName ?? '',
+      ownerPhone: owner?.phone ?? v1.ownerPhone ?? ownerPhone ?? '',
+      ownerEmail: owner?.email ?? v1.ownerEmail ?? ownerEmail ?? '',
       startDate: start.format('YYYY-MM-DD'), endDate: end.format('YYYY-MM-DD'),
-      annualValue: v4.annualValue, currency: 'AED', status: 'active',
-      scope: selectedServices.map(id => SERVICE_CATALOGUE.find(s => s.id === id)!.label),
-      excludedScope: excludedServices.map(id => EXCLUDED_CATALOGUE.find(s => s.id === id)!.label),
+      annualValue: v4.annualValue, currency: 'AED', status: start.isAfter(dayjs(), 'day') ? 'pending' : 'active',
+      scope, excludedScope: excluded,
       visitFrequency: visitOpt.label, visitsTotal: visitOpt.count, visitsDone: 0,
       visitSchedule: schedule, paymentSchedule: payments,
       lastVisit: null, lastVisitReport: '', nextVisit: schedule[0] ?? null,
       responseTime: v3.responseTime ?? '4h',
       emergencyIncluded: v3.emergencyIncluded ?? false,
-      notes: v3.notes ?? '',
-      terms: selectedTerms.map(id => TERMS_CATALOGUE.find(t => t.id === id)?.text ?? id),
+      notes: notes ?? '',
+      terms: selectedTerms,
       customTerms,
     };
     onSave(contract);
-    message.success('تم إنشاء عقد AMC بنجاح');
-    handleClose();
+    message.success(buildingId ? `تم إنشاء عقد الصيانة ${contractNo} وجدولة ${visitOpt.count} زيارة` : 'تم إنشاء عقد AMC بنجاح', 6);
+    doClose();
   };
 
   /* ── Step renderers ── */
@@ -246,35 +289,36 @@ const AddAmcContractModal: React.FC<Props> = ({
       <div style={{ background: '#f6ffed', borderRadius: 12, padding: '16px 18px', marginBottom: 16, border: `2px solid ${PRIMARY}44` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <div style={{ background: PRIMARY, color: '#fff', fontWeight: 700, fontSize: 11, borderRadius: 6, padding: '2px 10px' }}>الطرف الأول</div>
-          <Text strong style={{ fontSize: 13, color: PRIMARY }}>مالك / مستأجر المبنى</Text>
+          <Text strong style={{ fontSize: 13, color: PRIMARY }}>مالك المبنى</Text>
         </div>
-        <Row gutter={16}>
-          <Col span={24}>
-            <Form.Item name="ownerName" label="الاسم الكامل" initialValue={ownerName} rules={[{ required: true, message: 'مطلوب' }]}>
-              <Input prefix={<UserOutlined />} placeholder="اسم المالك أو المستأجر" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="ownerPhone" label="رقم الهاتف" initialValue={ownerPhone}>
-              <Input placeholder="+971XXXXXXXXX" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="ownerEmail" label="البريد الإلكتروني" initialValue={ownerEmail} rules={[{ type: 'email', message: 'بريد غير صالح' }]}>
-              <Input placeholder="owner@email.com" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="ownerIdNo" label="رقم الهوية / السجل التجاري">
-              <Input placeholder="اختياري" />
-            </Form.Item>
-          </Col>
-          <Col span={12}>
-            <Form.Item name="ownerAddress" label="عنوان المراسلة">
-              <Input placeholder="أبوظبي، الإمارات" />
-            </Form.Item>
-          </Col>
-        </Row>
+        {buildingId ? (
+          owners === null ? <Text type="secondary">جارٍ تحميل الملاك…</Text>
+          : owners.length === 0 ? <Alert type="warning" showIcon style={{ borderRadius: 8 }} message="لا يوجد مالك مسجّل لهذا المبنى" description="أضف المالك من «المبنى والوثائق ← الملاك» ثم أنشئ العقد." />
+          : (
+            <>
+              <Form.Item label="المالك (الموقّع على العقد)" required style={{ marginBottom: 12 }}>
+                <Select value={ownerId} onChange={setOwnerId} size="large"
+                  options={owners.map(o => ({ value: o.id, label: <span>{o.isPrimary && <StarFilled style={{ color: GOLD, marginInlineEnd: 6 }} />}{o.name}{o.ownershipPercentage ? ` — ${o.ownershipPercentage}%` : ''}</span> }))} />
+              </Form.Item>
+              {owner && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', background: '#fff', borderRadius: 10, padding: '10px 14px', border: '1px solid #e3eee3' }}>
+                  <div><Text type="secondary" style={{ fontSize: 11 }}><PhoneOutlined /> الهاتف</Text><div style={{ direction: 'ltr', textAlign: 'right' }}>{owner.phone ?? '—'}</div></div>
+                  <div><Text type="secondary" style={{ fontSize: 11 }}><MailOutlined /> البريد</Text><div>{owner.email ?? '—'}</div></div>
+                  <div><Text type="secondary" style={{ fontSize: 11 }}><IdcardOutlined /> {owner.partyType === 'company' ? 'السجل التجاري' : 'الهوية الإماراتية'}</Text>
+                    <div>{owner.partyType === 'company' ? (owner.tradeLicenseNo ?? '—') : (owner.emiratesId ?? '—')}</div></div>
+                  <div><Text type="secondary" style={{ fontSize: 11 }}>الصفة</Text><div>{owner.isPrimary ? 'المالك الرئيسي' : 'مالك'}{owner.ownershipPercentage ? ` · ${owner.ownershipPercentage}%` : ''}</div></div>
+                </div>
+              )}
+              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 8 }}>بيانات المالك تُعدَّل من ملف المبنى ← الملاك.</Text>
+            </>
+          )
+        ) : (
+          <Row gutter={16}>
+            <Col span={24}><Form.Item name="ownerName" label="الاسم الكامل" initialValue={ownerName} rules={[{ required: true, message: 'مطلوب' }]}><Input prefix={<UserOutlined />} /></Form.Item></Col>
+            <Col span={12}><Form.Item name="ownerPhone" label="رقم الهاتف" initialValue={ownerPhone}><Input placeholder="+971XXXXXXXXX" /></Form.Item></Col>
+            <Col span={12}><Form.Item name="ownerEmail" label="البريد الإلكتروني" initialValue={ownerEmail} rules={[{ type: 'email', message: 'بريد غير صالح' }]}><Input /></Form.Item></Col>
+          </Row>
+        )}
       </div>
 
       {/* SECOND PARTY — our company (fixed) */}
@@ -282,7 +326,7 @@ const AddAmcContractModal: React.FC<Props> = ({
         <div style={{ position: 'absolute', top: 0, insetInlineEnd: 0, width: 60, height: 60, background: `${PRIMARY}18`, borderRadius: '0 0 0 60px' }} />
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
           <div style={{ background: GOLD, color: '#fff', fontWeight: 700, fontSize: 11, borderRadius: 6, padding: '2px 10px' }}>الطرف الثاني</div>
-          <Text strong style={{ fontSize: 13, color: PRIMARY }}>مزود خدمة الغاز</Text>
+          <Text strong style={{ fontSize: 13, color: PRIMARY }}>مزود خدمة الصيانة</Text>
           <Tag color="success" style={{ marginInlineStart: 'auto', fontSize: 11 }}>ثابت</Tag>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -290,43 +334,26 @@ const AddAmcContractModal: React.FC<Props> = ({
             <span style={{ fontSize: 22 }}>🔥</span>
           </div>
           <div>
-            <Text strong style={{ fontSize: 15, color: PRIMARY, display: 'block' }}>{OUR_COMPANY.name}</Text>
-            <Text style={{ fontSize: 12, color: '#666' }}>{OUR_COMPANY.nameEn}</Text>
+            <Text strong style={{ fontSize: 15, color: PRIMARY, display: 'block' }}>{co.name}</Text>
+            <Text style={{ fontSize: 12, color: '#666' }}>{co.nameEn}</Text>
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 16px', marginTop: 14 }}>
           {[
-            { label: 'هاتف', value: OUR_COMPANY.phone },
-            { label: 'بريد', value: OUR_COMPANY.email },
-            { label: 'العنوان', value: OUR_COMPANY.address },
-            { label: 'السجل التجاري', value: OUR_COMPANY.crNo },
-            { label: 'الرقم الضريبي', value: OUR_COMPANY.trn },
-  ,
-          { title: 'الشروط والأحكام', bg: '#f9f0ff', rows: [
-            { label: 'بنود مختارة', value: `${selectedTerms.length} بند` },
-            { label: 'بنود مخصصة', value: `${customTerms.length} بند` },
-          ], extra: (
-            <div style={{ marginTop: 8 }}>
-              {selectedTerms.slice(0, 3).map(id => {
-                const t = TERMS_CATALOGUE.find(x => x.id === id);
-                return t ? <div key={id} style={{ fontSize: 11, color: '#555', marginBottom: 4, padding: '4px 8px', background: '#ede7f6', borderRadius: 6 }}>• {t.text.slice(0, 60)}{t.text.length > 60 ? '…' : ''}</div> : null;
-              })}
-              {selectedTerms.length > 3 && <Text type="secondary" style={{ fontSize: 11 }}>و {selectedTerms.length - 3} بنود أخرى…</Text>}
-              {customTerms.slice(0, 2).map((t, i) => (
-                <div key={i} style={{ fontSize: 11, color: '#ad6800', marginTop: 2, padding: '4px 8px', background: '#fffbe6', borderRadius: 6 }}>★ {t.slice(0, 60)}{t.length > 60 ? '…' : ''}</div>
-              ))}
-            </div>
-          ) }
-        ].map(row => (
+            { label: 'هاتف', value: co.phone },
+            { label: 'بريد', value: co.email },
+            { label: 'العنوان', value: co.address },
+            { label: 'الرقم الضريبي', value: co.trn },
+          ].map(row => (
             <div key={row.label} style={{ background: 'rgba(255,255,255,0.6)', borderRadius: 8, padding: '7px 10px' }}>
               <Text style={{ fontSize: 10, color: '#888', display: 'block' }}>{row.label}</Text>
-              <Text style={{ fontSize: 12, fontWeight: 600 }}>{row.value}</Text>
+              <Text style={{ fontSize: 12, fontWeight: 600 }}>{row.value || '—'}</Text>
             </div>
           ))}
         </div>
         <div style={{ marginTop: 12, padding: '8px 12px', background: 'rgba(255,255,255,0.5)', borderRadius: 8, border: '1px dashed #a5d6a7' }}>
           <Text style={{ fontSize: 11, color: '#555' }}>
-            🔒 بيانات الطرف الثاني ثابتة ومرتبطة بحساب شركتك — لتغييرها راجع إعدادات النظام
+            🔒 بيانات الطرف الثاني ثابتة ومأخوذة من بيانات شركتك — لتغييرها راجع الإعدادات
           </Text>
         </div>
       </div>
@@ -541,94 +568,33 @@ const AddAmcContractModal: React.FC<Props> = ({
   const renderStep4TC = () => (
     <div style={{ direction: 'rtl' }}>
       <Alert type="info" showIcon style={{ marginBottom: 16, borderRadius: 8 }}
-        message="اختر الشروط والأحكام من القائمة أو أضف بنوداً مخصصة" />
-
-      {/* ── T&C from catalogue ── */}
-      <Text strong style={{ fontSize: 13, color: PRIMARY, display: 'block', marginBottom: 12 }}>
-        <FileProtectOutlined style={{ marginInlineEnd: 6 }} />قائمة الشروط والأحكام
-      </Text>
-      {Object.entries(TERMS_CATEGORIES).map(([catKey, catMeta]) => {
-        const items = TERMS_CATALOGUE.filter(t => t.category === catKey);
-        if (!items.length) return null;
-        return (
-          <div key={catKey} style={{ marginBottom: 14 }}>
-            <Tag color={catMeta.color} style={{ fontSize: 11, marginBottom: 8, borderRadius: 6 }}>{catMeta.label}</Tag>
-            {items.map(t => {
-              const sel = selectedTerms.includes(t.id);
-              return (
-                <div key={t.id}
-                  onClick={() => setSelectedTerms(prev => sel ? prev.filter(x => x !== t.id) : [...prev, t.id])}
-                  style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 12px', marginBottom: 4, cursor: 'pointer', borderRadius: 8, border: `1px solid ${sel ? '#91caff' : '#f0f0f0'}`, background: sel ? '#e6f4ff' : '#fafafa', transition: 'all 0.15s' }}>
-                  <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${sel ? '#1677ff' : '#d9d9d9'}`, background: sel ? '#1677ff' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
-                    {sel && <CheckCircleOutlined style={{ color: '#fff', fontSize: 9 }} />}
-                  </div>
-                  <Text style={{ fontSize: 12, lineHeight: 1.6, color: sel ? '#1677ff' : '#333' }}>{t.text}</Text>
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
-
-      {/* ── Custom terms ── */}
-      <div style={{ marginTop: 18, background: '#fffbe6', borderRadius: 10, padding: '14px', border: '1px solid #ffe58f' }}>
-        <Text strong style={{ fontSize: 13, color: '#ad6800', display: 'block', marginBottom: 10 }}>
-          <EditOutlined style={{ marginInlineEnd: 6 }} />إضافة بند مخصص
-        </Text>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Input.TextArea rows={2} value={customTermInput} onChange={e => setCustomTermInput(e.target.value)}
-            placeholder="اكتب البند المخصص هنا..." style={{ borderRadius: 8, fontSize: 12, resize: 'none' }} />
-          <Button type="primary"
-            icon={<PlusOutlined />}
-            style={{ background: GOLD, borderColor: GOLD, borderRadius: 8, height: 'auto', minWidth: 80, color: '#fff' }}
-            onClick={() => { if (customTermInput.trim()) { setCustomTerms(p => [...p, customTermInput.trim()]); setCustomTermInput(''); } }}>
-            إضافة بند
-          </Button>
-        </div>
-        {customTerms.length > 0 && (
-          <div style={{ marginTop: 12 }}>
-            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 6 }}>البنود المخصصة المضافة:</Text>
-            {customTerms.map((t, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px', marginBottom: 4, borderRadius: 8, border: '1px solid #ffd666', background: '#fffef0' }}>
-                <Text style={{ fontSize: 11, color: '#888', minWidth: 18, paddingTop: 2 }}>{i + 1}.</Text>
-                <Text style={{ fontSize: 12, flex: 1, lineHeight: 1.6 }}>{t}</Text>
-                <Button type="text" size="small" danger icon={<DeleteOutlined />}
-                  onClick={() => setCustomTerms(prev => prev.filter((_, j) => j !== i))} />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div style={{ marginTop: 12, display: 'flex', gap: 8 }}>
-        <Tag color="blue">{selectedTerms.length} بند مختار</Tag>
-        {customTerms.length > 0 && <Tag color="gold">{customTerms.length} بند مخصص</Tag>}
-      </div>
+        message="الشروط من الإعدادات ← الشروط والأحكام (عقود الصيانة AMC) — يمكنك تعديل أي بند أو إضافة بنود خاصة بهذا العقد فقط" />
+      <ContractTermsPicker contractType="amc" value={amcTerms} onChange={setAmcTerms} />
     </div>
   );
 
   const renderStep4 = () => {
-    const v1 = form1.getFieldsValue();
-    const v3 = form3.getFieldsValue();
-    const v4 = form4.getFieldsValue();
+    const v1 = form1.getFieldsValue(true);
+    const v3 = form3.getFieldsValue(true);
+    const v4 = form4.getFieldsValue(true);
     return (
       <div style={{ direction: 'rtl' }}>
         <Alert type="success" showIcon style={{ marginBottom: 14, borderRadius: 8 }}
           message="راجع تفاصيل العقد — يمكنك العودة لأي خطوة للتعديل" />
         {[
           { title: 'أطراف العقد', bg: '#f6ffed', rows: [
-            { label: 'الطرف الأول — المالك', value: v1.ownerName },
-            { label: 'هاتف المالك', value: v1.ownerPhone },
-            { label: 'الطرف الثاني — مزود الخدمة', value: OUR_COMPANY.name },
-            { label: 'هاتف مزود الخدمة', value: OUR_COMPANY.phone },
+            { label: 'الطرف الأول — المالك', value: owner?.name ?? v1.ownerName },
+            { label: 'هاتف المالك', value: owner?.phone ?? v1.ownerPhone },
+            { label: 'الطرف الثاني — مزود الخدمة', value: co.name },
+            { label: 'هاتف مزود الخدمة', value: co.phone },
           ]},
           { title: 'الخدمات', bg: '#e8f5e9', rows: [
             { label: 'خدمات مشمولة', value: `${selectedServices.length + customIncluded.length} خدمة` },
             { label: 'خدمات مستثناة', value: `${excludedServices.length + customExcluded.length} خدمة` },
           ], extra: (
             <div style={{ marginTop: 8 }}>
-              {selectedServices.slice(0, 4).map(id => <Tag key={id} color="green" style={{ fontSize: 11, marginBottom: 4 }}>{SERVICE_CATALOGUE.find(s => s.id === id)!.label}</Tag>)}
-              {selectedServices.length > 4 && <Tag style={{ fontSize: 11 }}>+{selectedServices.length - 4}</Tag>}
+              {[...selectedServices.map(id => SERVICE_CATALOGUE.find(x => x.id === id)!.label), ...customIncluded].slice(0, 4).map(l => <Tag key={l} color="green" style={{ fontSize: 11, marginBottom: 4 }}>{l}</Tag>)}
+              {selectedServices.length + customIncluded.length > 4 && <Tag style={{ fontSize: 11 }}>+{selectedServices.length + customIncluded.length - 4}</Tag>}
             </div>
           )},
           { title: 'الزيارات', bg: '#e6f4ff', rows: [
@@ -639,7 +605,7 @@ const AddAmcContractModal: React.FC<Props> = ({
           ]},
           { title: 'الرسوم والدفعات', bg: '#fff7e6', rows: [
             { label: 'تاريخ البداية', value: v4.startDate ? (v4.startDate as Dayjs).format('YYYY-MM-DD') : '—' },
-            { label: 'تاريخ الانتهاء', value: v4.endDate ? (v4.endDate as Dayjs).format('YYYY-MM-DD') : '—' },
+            { label: 'تاريخ الانتهاء', value: v4.endDate ? (v4.endDate as Dayjs).format('YYYY-MM-DD') : v4.startDate ? `${(v4.startDate as Dayjs).add(1, 'year').subtract(1, 'day').format('YYYY-MM-DD')} (سنة)` : '—' },
             { label: 'القيمة السنوية', value: v4.annualValue ? `${Number(v4.annualValue).toLocaleString()} د.إ` : '—' },
             { label: 'جدول الدفع', value: PAYMENT_FREQ_OPTIONS.find(o => o.value === v4.paymentFreq)?.label ?? '—' },
           ]},
@@ -649,7 +615,7 @@ const AddAmcContractModal: React.FC<Props> = ({
           ], extra: (
             <div style={{ marginTop: 8 }}>
               {selectedTerms.slice(0, 3).map(id => {
-                const t = TERMS_CATALOGUE.find(x => x.id === id);
+                const t = { text: id };
                 return t ? <div key={id} style={{ fontSize: 11, color: '#555', marginBottom: 4, padding: '4px 8px', background: '#ede7f6', borderRadius: 6 }}>• {t.text.slice(0, 65)}{t.text.length > 65 ? '…' : ''}</div> : null;
               })}
               {selectedTerms.length > 3 && <Text type="secondary" style={{ fontSize: 11 }}>وبنود {selectedTerms.length - 3} أخرى…</Text>}
@@ -700,12 +666,12 @@ const AddAmcContractModal: React.FC<Props> = ({
       }
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <Button onClick={handleClose} icon={<CloseOutlined />}>إلغاء</Button>
+          <Button onClick={handleClose} icon={<CloseOutlined />} disabled={saving}>إلغاء</Button>
           <Space>
             {step > 0 && <Button onClick={() => setStep(s => s - 1)}>السابق</Button>}
             {step < STEPS.length - 1
               ? <Button type="primary" onClick={handleNext} style={{ background: PRIMARY, borderColor: PRIMARY }}>التالي</Button>
-              : <Button type="primary" icon={<CheckCircleOutlined />} onClick={handleSave} style={{ background: GOLD, borderColor: GOLD, fontWeight: 600, paddingInline: 24 }}>إنشاء العقد</Button>
+              : <Button type="primary" icon={<CheckCircleOutlined />} onClick={handleSave} loading={saving} style={{ background: GOLD, borderColor: GOLD, fontWeight: 600, paddingInline: 24 }}>إنشاء العقد</Button>
             }
           </Space>
         </div>
@@ -719,7 +685,10 @@ const AddAmcContractModal: React.FC<Props> = ({
         ))}
       </div>
       <div style={{ minHeight: 360, maxHeight: '60vh', overflowY: 'auto', paddingInlineEnd: 4 }}>
-        {stepContent[step]}
+        {/* every step stays mounted (only hidden) so the values of earlier steps are never lost */}
+        {stepContent.map((content, i) => (
+          <div key={i} style={{ display: i === step ? 'block' : 'none' }}>{content}</div>
+        ))}
       </div>
     </Modal>
 

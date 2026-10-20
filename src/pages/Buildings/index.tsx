@@ -1,16 +1,25 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import BuildingProfile from './BuildingProfile';
 import {
   Row, Col, Card, Table, Button, Tag, Input, Select, Space, InputNumber,
-  Modal, Form, Typography, Statistic, Divider, Tooltip, Badge, Steps, Result, Upload
+  Modal, Form, Typography, Statistic, Divider, Tooltip, Badge, Steps, Result, Upload, Alert, message
 } from 'antd';
 import {
   BankOutlined, PlusOutlined, SearchOutlined, EyeOutlined,
-  EditOutlined, DeleteOutlined, ArrowUpOutlined, ArrowDownOutlined,
+  EditOutlined, DeleteOutlined, ReloadOutlined, PauseCircleOutlined, PlayCircleOutlined,
   EnvironmentOutlined, HomeOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
-  NumberOutlined, ApartmentOutlined, FileTextOutlined, ShopOutlined, UserOutlined, PhoneOutlined, MailOutlined, IdcardOutlined, SafetyCertificateOutlined, UploadOutlined, BuildOutlined, StarFilled, StarOutlined, DatabaseOutlined, CalendarOutlined, UsergroupAddOutlined
+  NumberOutlined, ApartmentOutlined, FileTextOutlined, ShopOutlined, UserOutlined, PhoneOutlined, MailOutlined, IdcardOutlined, SafetyCertificateOutlined, UploadOutlined, BuildOutlined, StarFilled, StarOutlined, DatabaseOutlined
 } from '@ant-design/icons';
 import ReactApexChart from 'react-apexcharts';
+import { useTranslation } from 'react-i18next';
+import { buildingsApi, uploadDocument } from '../../api/buildings';
+import type { BuildingInput, BuildingKpis, BuildingListItem, OwnerInput, TankInput, UnitInput } from '../../api/buildings';
+import { useReference, locName } from '../../api/reference';
+import { errorMessage } from '../../api/client';
+import { useAuth } from '../../auth/AuthContext';
+import EditBuildingModal from './EditBuildingModal';
+import { useGlobalFilters } from '../../context/GlobalFilters';
+import { useSearchParams } from 'react-router-dom';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -18,38 +27,23 @@ const { Option } = Select;
 const PRIMARY = '#1a5c2a';
 const PRIMARY_LIGHT = '#e8f5e9';
 
-const mockData = [
-  { key: 1, no: 'B-001', name: 'مجمع الرحاب', branch: 'أبوظبي', units: 24, occupied: 22, vacant: 2, status: 'active' },
-  { key: 2, no: 'B-002', name: 'برج الخليج', branch: 'دبي', units: 48, occupied: 45, vacant: 3, status: 'active' },
-  { key: 3, no: 'B-003', name: 'مجمع النخيل', branch: 'الشارقة', units: 36, occupied: 33, vacant: 3, status: 'active' },
-  { key: 4, no: 'B-004', name: 'مبنى الياسمين', branch: 'عجمان', units: 18, occupied: 14, vacant: 4, status: 'inactive' },
-  { key: 5, no: 'B-005', name: 'برج المارينا', branch: 'أبوظبي', units: 60, occupied: 58, vacant: 2, status: 'active' },
-  { key: 6, no: 'B-006', name: 'مجمع الفجيرة', branch: 'الفجيرة', units: 22, occupied: 18, vacant: 4, status: 'active' },
-];
-
-const kpis = [
-  { title: 'إجمالي المباني', value: 186, trend: +4.2, sub: 'مقارنة بالشهر الماضي', icon: <BankOutlined />, color: PRIMARY, bg: PRIMARY_LIGHT },
-  { title: 'مباني نشطة', value: 171, trend: +2.1, sub: '92% من الإجمالي', icon: <CheckCircleOutlined />, color: '#1565c0', bg: '#e3f2fd' },
-  { title: 'إجمالي الوحدات', value: 2356, trend: +8.5, sub: 'عبر جميع الفروع', icon: <HomeOutlined />, color: '#6a1b9a', bg: '#f3e5f5' },
-  { title: 'وحدات شاغرة', value: 184, trend: -3.2, sub: '7.8% من الإجمالي', icon: <ExclamationCircleOutlined />, color: '#c62828', bg: '#ffebee' },
-];
-
-const barOptions: any = {
+const barOptions = (categories: string[]): any => ({
   chart: { type: 'bar', toolbar: { show: false }, fontFamily: 'inherit' },
   colors: [PRIMARY],
   plotOptions: { bar: { borderRadius: 6, columnWidth: '50%' } },
   dataLabels: { enabled: false },
-  xaxis: { categories: ['أبوظبي', 'دبي', 'الشارقة', 'عجمان', 'الفجيرة'], labels: { style: { fontSize: '12px' } } },
+  xaxis: { categories, labels: { style: { fontSize: '12px' } } },
   grid: { borderColor: '#f5f5f5', strokeDashArray: 4 },
   tooltip: { y: { formatter: (v: number) => `${v} مبنى` } },
-};
+  noData: { text: 'لا توجد بيانات' },
+});
 
 const pieOptions: any = {
   chart: { type: 'donut', fontFamily: 'inherit' },
   colors: [PRIMARY, '#ff4d4f'],
   labels: ['مشغولة', 'شاغرة'],
   legend: { position: 'bottom', fontSize: '13px' },
-  plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: 'المشغولة', color: PRIMARY, fontSize: '14px', fontWeight: 700 } } } } },
+  plotOptions: { pie: { donut: { size: '65%', labels: { show: true, total: { show: true, label: 'المشغولة', color: PRIMARY, fontSize: '14px', fontWeight: 700, formatter: (w: any) => String(w.globals.seriesTotals[0] ?? 0) } } } } },
   dataLabels: { enabled: false },
   stroke: { width: 0 },
 };
@@ -62,46 +56,155 @@ const STEPS = [
   { title: 'العنوان والملاحظات', icon: <FileTextOutlined /> },
 ];
 
+// ── helpers: wizard form values → API payload ───────────────────────────────
+
+/** antd Upload inside Form.Item: keep the fileList as the field value. */
+const normFile = (e: any) => (Array.isArray(e) ? e : e?.fileList);
+const firstFile = (list: any): File | undefined => (Array.isArray(list) && list[0]?.originFileObj) || undefined;
+
+const clean = (v: unknown): string | undefined => {
+  const s = typeof v === 'string' ? v.trim() : v == null ? '' : String(v).trim();
+  return s ? s : undefined;
+};
+const num = (v: unknown): number | undefined => {
+  if (v === null || v === undefined || v === '') return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+};
+const parseFloor = (v: unknown): number | undefined => {
+  if (v === 'أرضي' || v === 'G' || v === 'g') return 0;
+  const m = String(v ?? '').match(/^\s*(?:بدروم\s*)?(-?\d+)/);
+  if (!m) return undefined;
+  const n = parseInt(m[1], 10);
+  return String(v).includes('بدروم') ? -Math.abs(n) : n;
+};
+/** "24.4539° N, 54.3773° E" or "24.4539, 54.3773" → { latitude, longitude } */
+const parseCoordinates = (v: unknown): { latitude?: number; longitude?: number } => {
+  const s = String(v ?? '').trim();
+  if (!s) return {};
+  const parts = s.split(/[,،]/).map(p => p.trim());
+  if (parts.length !== 2) return {};
+  const one = (p: string) => {
+    const m = p.match(/(-?\d+(?:\.\d+)?)/);
+    if (!m) return undefined;
+    const n = parseFloat(m[1]);
+    return /[SW]/i.test(p) ? -Math.abs(n) : n;
+  };
+  const latitude = one(parts[0]); const longitude = one(parts[1]);
+  if (latitude === undefined || longitude === undefined || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return {};
+  return { latitude, longitude };
+};
+/** Put the chosen default value first. */
+const defaultFirst = (list: unknown, idx: number | undefined): string[] => {
+  const arr = (Array.isArray(list) ? list : []).map(clean).filter((x): x is string => !!x);
+  const i = idx ?? 0;
+  if (i > 0 && i < arr.length) { const [d] = arr.splice(i, 1); arr.unshift(d); }
+  return arr;
+};
+
 const Buildings: React.FC = () => {
+  const { i18n } = useTranslation();
+  const isAr = i18n.language === 'ar';
+  const { can } = useAuth();
+  const canManage = can('buildings.manage');
+  const { data: ref, error: refError } = useReference(i18n.language);
+
+  // ── list state ──
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
-  const [branchFilter, setBranchFilter] = useState<string | undefined>();
+  const [branchFilter, setBranchFilter] = useState<number | undefined>();
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  // header toolbar: branch / building type / search apply to this list
+  const global = useGlobalFilters();
+  const [typeFilter, setTypeFilter] = useState<string | undefined>(global.buildingType);
+  useEffect(() => { setBranchFilter(global.branchId); setPage(1); }, [global.branchId]);
+  useEffect(() => { setTypeFilter(global.buildingType); setPage(1); }, [global.buildingType]);
+  useEffect(() => { if (global.searchNonce) { setSearchInput(global.search); setSearch(global.search); setPage(1); } }, [global.searchNonce]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [rows, setRows] = useState<BuildingListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+  const [kpiData, setKpiData] = useState<BuildingKpis | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const reload = useCallback(() => setReloadKey(k => k + 1), []);
+
+  // ── wizard state ──
   const [modalOpen, setModalOpen] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [done, setDone] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [created, setCreated] = useState<{ id: number; code: string; warnings: string[] } | null>(null);
   const [primaryOwnerIdx, setPrimaryOwnerIdx] = useState(0);
   const [defaultPhones, setDefaultPhones] = useState<Record<number, number>>({ 0: 0 });
   const [defaultEmails, setDefaultEmails] = useState<Record<number, number>>({ 0: 0 });
-  // Mock data — will be replaced by API
-  const [mockMeters, setMockMeters] = useState<string[]>(['M-001', 'M-002', 'M-003', 'M-004', 'M-005']);
-  const [mockTenants, setMockTenants] = useState<{ id: string; name: string; phone: string }[]>([
-    { id: 'T-001', name: 'أحمد محمد علي', phone: '+971501234567' },
-    { id: 'T-002', name: 'فاطمة خالد النعيمي', phone: '+971502345678' },
-  ]);
-  const [newMeterInput, setNewMeterInput] = useState('');
-  const [newTenantName, setNewTenantName] = useState('');
-  const [newTenantPhone, setNewTenantPhone] = useState('');
 
   // Quick unit generator state
   const [genFloors, setGenFloors] = useState(1);
   const [genStartFloor, setGenStartFloor] = useState(1);
   const [genUnitsPerFloor, setGenUnitsPerFloor] = useState(1);
   const [genNaming, setGenNaming] = useState<'floor_unit' | 'floor_letter' | 'sequential' | 'floor_dash'>('floor_unit');
-  const [genUnitType, setGenUnitType] = useState('apartment');
-  const [viewModal, setViewModal] = useState<any>(null);
+  const [genUnitType, setGenUnitType] = useState('residential');
+  const [viewModal, setViewModal] = useState<BuildingListItem | null>(null);
+  /** building whose details form is open */
+  const [editId, setEditId] = useState<number | null>(null);
   const [showProfile, setShowProfile] = useState(false);
+  const [profileTab, setProfileTab] = useState<'units' | 'overview' | 'contracts'>('units');
+  const openProfile = (r: BuildingListItem, tab: 'units' | 'overview' | 'contracts') => { setViewModal(r); setProfileTab(tab); setShowProfile(true); window.scrollTo({ top: 0 }); };
   const [form] = Form.useForm();
 
-  const filtered = mockData.filter(r => {
-    const matchSearch = !search || r.name.includes(search) || r.no.includes(search);
-    const matchBranch = !branchFilter || r.branch === branchFilter;
-    const matchStatus = !statusFilter || r.status === statusFilter;
-    return matchSearch && matchBranch && matchStatus;
-  });
+  // ── reference lists ──
+  const lk = (type: string) => ref?.lookups?.[type] ?? [];
+  const buildingTypes = lk('BUILDING_TYPE');
+  const buildingStatuses = lk('BUILDING_STATUS');
+  const unitTypes = lk('UNIT_TYPE');
+  const unitStatuses = lk('UNIT_STATUS');
+  const tankStatuses = lk('TANK_STATUS');
+  const citiesOf = (emirateId?: number) => (ref?.cities ?? []).filter(c => !emirateId || c.emirateId === emirateId);
+
+  // debounce the search box
+  useEffect(() => {
+    const t = setTimeout(() => { setSearch(searchInput.trim()); setPage(1); }, 400);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // load the table
+  useEffect(() => {
+    const ctrl = new AbortController();
+    setLoading(true);
+    buildingsApi.list({ page, pageSize, search: search || undefined, branchId: branchFilter, status: statusFilter, type: typeFilter }, ctrl.signal)
+      .then(res => { setRows(res.items); setTotal(res.total); setListError(null); })
+      .catch(e => { if (e?.name !== 'AbortError') setListError(errorMessage(e)); })
+      .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
+    return () => ctrl.abort();
+  }, [page, pageSize, search, branchFilter, statusFilter, typeFilter, reloadKey, i18n.language]);
+
+  // load KPIs + charts
+  useEffect(() => {
+    const ctrl = new AbortController();
+    buildingsApi.kpis(branchFilter, ctrl.signal)
+      .then(setKpiData)
+      .catch(e => { if (e?.name !== 'AbortError') setKpiData(null); });
+    return () => ctrl.abort();
+  }, [branchFilter, reloadKey, i18n.language]);
+
+  const kpis = useMemo(() => {
+    const k = kpiData;
+    const pct = (a: number, b: number) => (b ? Math.round((a / b) * 1000) / 10 : 0);
+    return [
+      { title: 'إجمالي المباني', value: k?.total ?? 0, sub: k ? `${k.newThisMonth} جديد هذا الشهر` : '—', icon: <BankOutlined />, color: PRIMARY, bg: PRIMARY_LIGHT },
+      { title: 'مباني نشطة', value: k?.active ?? 0, sub: k ? `${pct(k.active, k.total)}% من الإجمالي` : '—', icon: <CheckCircleOutlined />, color: '#1565c0', bg: '#e3f2fd' },
+      { title: 'إجمالي الوحدات', value: k?.totalUnits ?? 0, sub: k ? `نسبة الإشغال ${k.occupancyRate}%` : '—', icon: <HomeOutlined />, color: '#6a1b9a', bg: '#f3e5f5' },
+      { title: 'وحدات شاغرة', value: k?.vacantUnits ?? 0, sub: k ? `${pct(k.vacantUnits, k.totalUnits)}% من الإجمالي` : '—', icon: <ExclamationCircleOutlined />, color: '#c62828', bg: '#ffebee' },
+    ];
+  }, [kpiData]);
 
   const openModal = () => {
     setCurrentStep(0);
     setDone(false);
+    setCreated(null);
     setPrimaryOwnerIdx(0);
     setDefaultPhones({ 0: 0 });
     setDefaultEmails({ 0: 0 });
@@ -109,9 +212,15 @@ const Buildings: React.FC = () => {
     form.setFieldsValue({ owners: [{ ownerType: 'individual', phones: [''], emails: [''] }] });
     setModalOpen(true);
   };
-  const closeModal = () => { setModalOpen(false); setDone(false); setPrimaryOwnerIdx(0); setDefaultPhones({ 0: 0 }); setDefaultEmails({ 0: 0 }); form.resetFields(); };
+  // «إضافة سريع ← مبنى جديد» opens the wizard (/buildings?new=1)
+  useEffect(() => {
+    if (searchParams.get('new') === '1') { openModal(); searchParams.delete('new'); setSearchParams(searchParams, { replace: true }); }
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const closeModal = () => { setModalOpen(false); setDone(false); setCreated(null); setPrimaryOwnerIdx(0); setDefaultPhones({ 0: 0 }); setDefaultEmails({ 0: 0 }); form.resetFields(); };
 
   const confirmCancel = () => {
+    if (saving) return;
     Modal.confirm({
       title: 'إلغاء إضافة المبنى؟',
       content: 'سيتم فقدان جميع البيانات المدخلة. هل أنت متأكد؟',
@@ -125,15 +234,11 @@ const Buildings: React.FC = () => {
 
   const nextStep = () => {
     if (currentStep === 0) {
-      form.validateFields(['no', 'name', 'nameEn', 'branch', 'type']).then(() => setCurrentStep(s => s + 1));
+      form.validateFields(['name', 'nameEn', 'branch', 'type']).then(() => setCurrentStep(s => s + 1));
     } else if (currentStep === 1) {
       form.validateFields().then(() => setCurrentStep(s => s + 1));
     } else if (currentStep === 2) {
-      // Tanks step — no required fields, proceed freely
-      setCurrentStep(s => s + 1);
-    } else if (currentStep === 3) {
-      // Units step — status has initialValue, just proceed
-      setCurrentStep(s => s + 1);
+      form.validateFields().then(() => setCurrentStep(s => s + 1));
     } else {
       setCurrentStep(s => s + 1);
     }
@@ -141,27 +246,10 @@ const Buildings: React.FC = () => {
 
   const prevStep = () => setCurrentStep(s => s - 1);
 
-  const addQuickMeter = () => {
-    const val = newMeterInput.trim();
-    if (val && !mockMeters.includes(val)) { setMockMeters(prev => [...prev, val]); }
-    setNewMeterInput('');
-  };
-
-  const addQuickTenant = () => {
-    const name = newTenantName.trim();
-    if (name) {
-      const id = `T-${String(mockTenants.length + 1).padStart(3, '0')}`;
-      setMockTenants(prev => [...prev, { id, name, phone: newTenantPhone.trim() }]);
-      setNewTenantName('');
-      setNewTenantPhone('');
-    }
-  };
-
   const generateUnits = () => {
     const units: { unitNo: string; floor: number | string; type: string; area: string; status: string }[] = [];
     let seq = 1;
     for (let f = genStartFloor; f < genStartFloor + genFloors; f++) {
-      const floorLabel = f === 0 ? 'أرضي' : f < 0 ? `بدروم ${Math.abs(f)}` : `${f}`;
       for (let u = 1; u <= genUnitsPerFloor; u++) {
         let unitNo = '';
         if (genNaming === 'floor_unit') {
@@ -178,43 +266,208 @@ const Buildings: React.FC = () => {
       }
     }
     form.setFieldsValue({ unitsList: units });
+    if (!form.getFieldValue('totalFloors')) form.setFieldsValue({ totalFloors: genFloors });
   };
 
-  const onFinish = () => {
-    form.validateFields().then(() => setDone(true));
+  /** Wizard values → POST /buildings body. */
+  const toPayload = (v: any): BuildingInput => {
+    const owners: OwnerInput[] = (v.owners ?? []).map((o: any, i: number) => {
+      const isCompany = o.ownerType === 'company';
+      const phones = defaultFirst(o.phones, defaultPhones[i]);
+      const emails = defaultFirst(o.emails, defaultEmails[i]);
+      return {
+        isPrimary: i === primaryOwnerIdx,
+        party: {
+          partyType: isCompany ? 'company' : 'individual',
+          // a company owner is registered under the company name
+          nameAr: clean(isCompany ? o.companyName ?? o.ownerName : o.ownerName),
+          nameEn: clean(isCompany ? o.companyNameEn ?? o.ownerNameEn : o.ownerNameEn),
+          emiratesId: clean(o.emiratesId),
+          tradeLicenseNo: isCompany ? clean(o.tradeLicenseNo) : undefined,
+          taxNumber: isCompany ? clean(o.taxNo) : undefined,
+          cityId: isCompany ? o.companyCity ?? o.ownerCity : o.ownerCity,
+          poBox: isCompany ? clean(o.companyPO) : undefined,
+          address: isCompany ? clean(o.companyAddress) : undefined,
+          bankName: clean(o.bankName),
+          iban: clean(o.bankIban),
+          phones,
+          emails,
+        },
+      };
+    });
+    const tanks: TankInput[] = (v.tanks ?? []).map((t: any) => ({
+      tankNo: clean(t.tankNo),
+      gasType: t.gasType,
+      capacityLitres: Number(t.capacity),
+      currentLevelLitres: num(t.currentLevel),
+      serialNo: clean(t.serialNo),
+      manufacturer: clean(t.manufacturer),
+      installDate: clean(t.installDate),
+      lastInspectionDate: clean(t.lastInspection),
+      nextInspectionDate: clean(t.nextInspection),
+      status: t.status,
+    }));
+    const units: UnitInput[] = (v.unitsList ?? [])
+      .filter((u: any) => clean(u.unitNo))
+      .map((u: any) => ({ no: clean(u.unitNo), floor: parseFloor(u.floor), type: u.type, area: num(u.area), status: u.status }));
+    return {
+      branchId: v.branch,
+      nameAr: clean(v.name),
+      nameEn: clean(v.nameEn),
+      buildingType: v.type,
+      status: v.status ?? 'active',
+      cityId: v.city,
+      zone: clean(v.zone),
+      street: clean(v.street),
+      poBox: clean(v.poBox),
+      address: clean(v.address),
+      ...parseCoordinates(v.coordinates),
+      totalFloors: num(v.totalFloors),
+      notes: clean(v.notes),
+      owners,
+      tanks,
+      units,
+    };
+  };
+
+  /** Upload the owners' attachments once the building (and its parties) exist. Returns warnings. */
+  const uploadOwnerFiles = async (buildingId: number, branchId: number | undefined, v: any): Promise<string[]> => {
+    const owners: any[] = v.owners ?? [];
+    const jobs = owners.flatMap((o, i) => [
+      { i, file: firstFile(o.emiratesIdFile), type: 'emirates_id', label: 'الهوية' },
+      { i, file: firstFile(o.tradeLicenseFile), type: 'trade_license', label: 'الرخصة التجارية' },
+      { i, file: firstFile(o.taxFile), type: 'certificate', label: 'شهادة الضريبة' },
+    ]).filter(j => j.file);
+    if (!jobs.length) return [];
+    const warnings: string[] = [];
+    try {
+      const b = await buildingsApi.get(buildingId);
+      // owners are created in the order sent → ascending owner id
+      const byOrder = [...b.owners].sort((a, c) => a.id - c.id);
+      for (const j of jobs) {
+        const partyId = byOrder[j.i]?.partyId;
+        if (!partyId) { warnings.push(`لم يتم رفع ${j.label} للمالك ${j.i + 1}`); continue; }
+        try {
+          await uploadDocument({ file: j.file!, entityType: 'party', entityId: partyId, documentType: j.type, branchId });
+        } catch (e) {
+          warnings.push(`فشل رفع ${j.label} للمالك ${j.i + 1}: ${errorMessage(e)}`);
+        }
+      }
+    } catch (e) {
+      warnings.push(`تم حفظ المبنى لكن تعذّر رفع المرفقات: ${errorMessage(e)}`);
+    }
+    return warnings;
+  };
+
+  const onFinish = async () => {
+    try { await form.validateFields(); } catch { return; }
+    const v = form.getFieldsValue(true);
+    const payload = toPayload(v);
+    setSaving(true);
+    try {
+      const res = await buildingsApi.create(payload);
+      const warnings = await uploadOwnerFiles(res.id, payload.branchId, v);
+      setCreated({ ...res, warnings });
+      setDone(true);
+      reload();
+    } catch (e) {
+      message.error(errorMessage(e), 6);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  /** activate / deactivate (status «inactive» keeps the building and its history, just stops it) */
+  const confirmStatus = (r: BuildingListItem, status: 'active' | 'inactive') => {
+    Modal.confirm({
+      title: status === 'inactive' ? `إيقاف المبنى ${r.code}؟` : `تفعيل المبنى ${r.code}؟`,
+      content: status === 'inactive' ? 'يبقى المبنى ووحداته وسجلاته محفوظة، ويظهر كـ«غير نشط». يمكن تفعيله لاحقاً.' : 'سيعود المبنى إلى الحالة «نشط».',
+      okText: status === 'inactive' ? 'إيقاف' : 'تفعيل', cancelText: 'إلغاء', centered: true,
+      okButtonProps: status === 'inactive' ? { style: { background: '#d46b08', borderColor: '#d46b08' } } : { style: { background: PRIMARY, borderColor: PRIMARY } },
+      onOk: async () => {
+        try { await buildingsApi.setStatus(r.id, status); message.success(status === 'inactive' ? 'تم إيقاف المبنى' : 'تم تفعيل المبنى'); reload(); }
+        catch (e) { message.error(errorMessage(e), 6); }
+      },
+    });
+  };
+
+  const confirmDelete = (r: BuildingListItem) => {
+    Modal.confirm({
+      title: `حذف المبنى ${r.code}؟`,
+      content: `سيتم حذف "${r.name ?? ''}" من القائمة. لا يمكن حذف مبنى عليه عقود توريد نشطة.`,
+      okText: 'حذف',
+      cancelText: 'إلغاء',
+      okType: 'danger',
+      centered: true,
+      onOk: async () => {
+        try {
+          await buildingsApi.remove(r.id);
+          message.success('تم حذف المبنى');
+          if (rows.length === 1 && page > 1) setPage(p => p - 1); else reload();
+        } catch (e) {
+          message.error(errorMessage(e), 6);
+        }
+      },
+    });
+  };
+
+  const statusTag = (code?: string) => {
+    const lv = buildingStatuses.find(s => s.code === code);
+    const label = lv?.label ?? (code === 'active' ? 'نشط' : code === 'inactive' ? 'غير نشط' : code ?? '—');
+    return <Tag color={code === 'active' ? 'success' : 'default'} style={{ borderRadius: 20, fontWeight: 500 }}>{label}</Tag>;
   };
 
   const columns = [
-    { title: 'رقم المبنى', dataIndex: 'no', key: 'no', width: 110, render: (v: string) => <Text strong style={{ color: PRIMARY, fontFamily: 'monospace' }}>{v}</Text> },
-    { title: 'اسم المبنى', dataIndex: 'name', key: 'name', render: (v: string) => <Text strong>{v}</Text> },
+    { title: 'رقم المبنى', dataIndex: 'code', key: 'code', width: 110, render: (v: string) => <Text strong style={{ color: PRIMARY, fontFamily: 'monospace' }}>{v}</Text> },
+    {
+      title: 'اسم المبنى', dataIndex: 'name', key: 'name',
+      render: (v: string, r: BuildingListItem) => (
+        <div>
+          <a onClick={e => { e.stopPropagation(); openProfile(r, 'units'); }} style={{ fontWeight: 600, color: PRIMARY }}>{v}</a>
+          {(r.city || r.primaryOwner) && <div style={{ fontSize: 11, color: '#999' }}>{[r.city, r.primaryOwner].filter(Boolean).join(' · ')}</div>}
+        </div>
+      ),
+    },
     { title: 'الفرع', dataIndex: 'branch', key: 'branch', render: (v: string) => <Tag icon={<EnvironmentOutlined />} color="default">{v}</Tag> },
     { title: 'الوحدات', dataIndex: 'units', key: 'units', width: 90, align: 'center' as const },
     {
       title: 'مشغولة / شاغرة', key: 'occ', width: 140, align: 'center' as const,
-      render: (_: any, r: any) => <Space size={4}><Text style={{ color: PRIMARY, fontWeight: 600 }}>{r.occupied}</Text><Text type="secondary">/</Text><Text style={{ color: '#c62828', fontWeight: 600 }}>{r.vacant}</Text></Space>
+      render: (_: any, r: BuildingListItem) => <Space size={4}><Text style={{ color: PRIMARY, fontWeight: 600 }}>{r.occupied}</Text><Text type="secondary">/</Text><Text style={{ color: '#c62828', fontWeight: 600 }}>{r.vacant}</Text></Space>
     },
     {
       title: 'الإشغال', key: 'rate', width: 90, align: 'center' as const,
-      render: (_: any, r: any) => {
+      render: (_: any, r: BuildingListItem) => {
+        if (!r.units) return <Text type="secondary">—</Text>;
         const pct = Math.round((r.occupied / r.units) * 100);
         return <Badge count={`${pct}%`} style={{ backgroundColor: pct >= 90 ? PRIMARY : pct >= 70 ? '#f59e0b' : '#ef4444', fontSize: 11 }} />;
       }
     },
-    { title: 'الحالة', dataIndex: 'status', key: 'status', width: 90, render: (v: string) => <Tag color={v === 'active' ? 'success' : 'default'} style={{ borderRadius: 20, fontWeight: 500 }}>{v === 'active' ? 'نشط' : 'غير نشط'}</Tag> },
+    { title: 'الحالة', dataIndex: 'status', key: 'status', width: 100, render: (v: string) => statusTag(v) },
     {
-      title: 'الإجراءات', key: 'actions', width: 110, align: 'center' as const,
-      render: (_: any, r: any) => (
-        <Space size={4}>
-          <Tooltip title="عرض الملف الكامل"><Button size="small" type="text" icon={<EyeOutlined />} onClick={() => { setViewModal(r); setShowProfile(true); }} style={{ color: PRIMARY }} /></Tooltip>
-          <Tooltip title="تعديل"><Button size="small" type="text" icon={<EditOutlined />} style={{ color: '#1565c0' }} /></Tooltip>
-          <Tooltip title="حذف"><Button size="small" type="text" icon={<DeleteOutlined />} danger /></Tooltip>
+      title: 'الإجراءات', key: 'actions', width: 170, align: 'center' as const,
+      render: (_: any, r: BuildingListItem) => (
+        <Space size={4} onClick={e => e.stopPropagation()}>
+          <Tooltip title="مخطط الطوابق والوحدات">
+            <Button size="small" icon={<ApartmentOutlined />} onClick={() => openProfile(r, 'units')}
+              style={{ color: '#fff', background: PRIMARY, borderColor: PRIMARY, borderRadius: 6 }}>المخطط</Button>
+          </Tooltip>
+          <Tooltip title="عرض الملف الكامل"><Button size="small" type="text" icon={<EyeOutlined />} onClick={() => openProfile(r, 'overview')} style={{ color: PRIMARY }} /></Tooltip>
+          {canManage && <Tooltip title="تعديل بيانات المبنى"><Button size="small" type="text" icon={<EditOutlined />} style={{ color: '#1565c0' }} onClick={() => setEditId(r.id)} /></Tooltip>}
+          {canManage && (r.status === 'inactive'
+            ? <Tooltip title="تفعيل المبنى"><Button size="small" type="text" icon={<PlayCircleOutlined />} style={{ color: PRIMARY }} onClick={() => confirmStatus(r, 'active')} /></Tooltip>
+            : <Tooltip title="إيقاف المبنى (دون حذف)"><Button size="small" type="text" icon={<PauseCircleOutlined />} style={{ color: '#d46b08' }} onClick={() => confirmStatus(r, 'inactive')} /></Tooltip>)}
+          {canManage && <Tooltip title="حذف"><Button size="small" type="text" icon={<DeleteOutlined />} danger onClick={() => confirmDelete(r)} /></Tooltip>}
         </Space>
       )
     },
   ];
 
   if (showProfile) {
-    return <BuildingProfile onBack={() => { setShowProfile(false); setViewModal(null); }} />;
+    return (
+      <div style={{ padding: '20px 24px 32px', background: '#f7f8fa', minHeight: '100vh' }}>
+        <BuildingProfile buildingId={viewModal?.id} initialTab={profileTab} onBack={() => { setShowProfile(false); setViewModal(null); reload(); }} />
+      </div>
+    );
   }
 
   return (
@@ -231,12 +484,22 @@ const Buildings: React.FC = () => {
             <Text type="secondary" style={{ fontSize: 13 }}>إدارة وعرض جميع المباني عبر الفروع</Text>
           </div>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} size="large"
-          style={{ background: PRIMARY, borderColor: PRIMARY, borderRadius: 10, fontWeight: 600, height: 42, paddingInline: 20 }}
-          onClick={openModal}>
-          إضافة مبنى
-        </Button>
+        <Space>
+          <Tooltip title="تحديث"><Button icon={<ReloadOutlined />} size="large" style={{ borderRadius: 10, height: 42 }} onClick={reload} loading={loading} /></Tooltip>
+          {canManage && (
+            <Button type="primary" icon={<PlusOutlined />} size="large"
+              style={{ background: PRIMARY, borderColor: PRIMARY, borderRadius: 10, fontWeight: 600, height: 42, paddingInline: 20 }}
+              onClick={openModal} disabled={!ref}>
+              إضافة مبنى
+            </Button>
+          )}
+        </Space>
       </div>
+
+      {refError != null && (
+        <Alert type="warning" showIcon style={{ marginBottom: 16, borderRadius: 10 }}
+          message={`تعذّر تحميل القوائم المرجعية (الفروع، المدن، الأنواع): ${errorMessage(refError)}`} />
+      )}
 
       {/* KPIs */}
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
@@ -248,8 +511,6 @@ const Buildings: React.FC = () => {
                   <Text style={{ fontSize: 12, color: '#888', display: 'block', marginBottom: 6 }}>{k.title}</Text>
                   <div style={{ fontSize: 28, fontWeight: 800, color: k.color, lineHeight: 1.1 }}>{k.value.toLocaleString()}</div>
                   <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-                    {k.trend > 0 ? <ArrowUpOutlined style={{ color: '#52c41a', fontSize: 11 }} /> : <ArrowDownOutlined style={{ color: '#ff4d4f', fontSize: 11 }} />}
-                    <Text style={{ fontSize: 11, color: k.trend > 0 ? '#52c41a' : '#ff4d4f', fontWeight: 600 }}>{Math.abs(k.trend)}%</Text>
                     <Text type="secondary" style={{ fontSize: 11 }}>{k.sub}</Text>
                   </div>
                 </div>
@@ -264,12 +525,16 @@ const Buildings: React.FC = () => {
       <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
         <Col xs={24} md={15}>
           <Card title={<Text strong style={{ fontSize: 14 }}>توزيع المباني حسب الفرع</Text>} style={{ borderRadius: 14, border: 'none', boxShadow: '0 1px 6px rgba(0,0,0,0.07)' }} styles={{ body: { paddingTop: 8 } }}>
-            <ReactApexChart options={barOptions} series={[{ name: 'المباني', data: [45, 38, 52, 29, 22] }]} type="bar" height={220} />
+            <ReactApexChart key={(kpiData?.byBranch ?? []).map(b => b.branchId).join('-')}
+              options={barOptions((kpiData?.byBranch ?? []).map(b => b.branch ?? ''))}
+              series={[{ name: 'المباني', data: (kpiData?.byBranch ?? []).map(b => b.buildings) }]} type="bar" height={220} />
           </Card>
         </Col>
         <Col xs={24} md={9}>
           <Card title={<Text strong style={{ fontSize: 14 }}>نسبة إشغال الوحدات</Text>} style={{ borderRadius: 14, border: 'none', boxShadow: '0 1px 6px rgba(0,0,0,0.07)', height: '100%' }} styles={{ body: { paddingTop: 8 } }}>
-            <ReactApexChart options={pieOptions} series={[2172, 184]} type="donut" height={220} />
+            {kpiData && kpiData.totalUnits > 0
+              ? <ReactApexChart options={pieOptions} series={[kpiData.occupiedUnits, kpiData.vacantUnits]} type="donut" height={220} />
+              : <div style={{ height: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Text type="secondary">لا توجد وحدات بعد</Text></div>}
           </Card>
         </Col>
       </Row>
@@ -278,22 +543,29 @@ const Buildings: React.FC = () => {
       <Card style={{ borderRadius: 14, border: 'none', boxShadow: '0 1px 6px rgba(0,0,0,0.07)' }} styles={{ body: { padding: 0 } }}>
         <div style={{ padding: '16px 20px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', borderBottom: '1px solid #f0f0f0' }}>
           <Text strong style={{ fontSize: 14, marginInlineEnd: 'auto' }}>قائمة المباني</Text>
-          <Input prefix={<SearchOutlined style={{ color: '#bbb' }} />} placeholder="بحث باسم المبنى أو الرقم..." style={{ width: 220, borderRadius: 8 }} value={search} onChange={e => setSearch(e.target.value)} allowClear />
-          <Select placeholder="الفرع" style={{ width: 130 }} allowClear onChange={v => setBranchFilter(v)}>
-            {['أبوظبي', 'دبي', 'الشارقة', 'عجمان', 'الفجيرة'].map(b => <Option key={b} value={b}>{b}</Option>)}
+          <Input prefix={<SearchOutlined style={{ color: '#bbb' }} />} placeholder="بحث باسم المبنى أو الرقم..." style={{ width: 220, borderRadius: 8 }} value={searchInput} onChange={e => setSearchInput(e.target.value)} allowClear />
+          <Select placeholder="الفرع" style={{ width: 150 }} allowClear value={branchFilter} onChange={v => { setBranchFilter(v); setPage(1); }}>
+            {(ref?.branches ?? []).map(b => <Option key={b.id} value={b.id}>{locName(b, isAr)}</Option>)}
           </Select>
-          <Select placeholder="الحالة" style={{ width: 120 }} allowClear onChange={v => setStatusFilter(v)}>
-            <Option value="active">نشط</Option>
-            <Option value="inactive">غير نشط</Option>
+          <Select placeholder="الحالة" style={{ width: 120 }} allowClear value={statusFilter} onChange={v => { setStatusFilter(v); setPage(1); }}>
+            {buildingStatuses.map(s => <Option key={s.code} value={s.code}>{s.label}</Option>)}
           </Select>
         </div>
-        <Table dataSource={filtered} columns={columns} pagination={{ pageSize: 10, showTotal: (t) => `إجمالي ${t} مبنى`, size: 'small' }} size="middle" scroll={{ x: true }} />
+        {listError && <Alert type="error" showIcon style={{ margin: 16, borderRadius: 8 }} message={listError}
+          action={<Button size="small" onClick={reload}>إعادة المحاولة</Button>} />}
+        <Table<BuildingListItem> dataSource={rows} columns={columns} rowKey="id" loading={loading}
+          onRow={r => ({ onClick: () => openProfile(r, 'units'), style: { cursor: 'pointer' } })}
+          pagination={{ current: page, pageSize, total, showSizeChanger: true, showTotal: (t) => `إجمالي ${t} مبنى`, size: 'small',
+            onChange: (p, ps) => { if (ps !== pageSize) { setPageSize(ps); setPage(1); } else setPage(p); } }}
+          size="middle" scroll={{ x: true }}
+          locale={{ emptyText: search || branchFilter || statusFilter ? 'لا توجد نتائج مطابقة' : 'لا توجد مباني بعد — أضف أول مبنى' }} />
       </Card>
 
       {/* ── ADD BUILDING MODAL (Multi-step) ── */}
       <Modal
         open={modalOpen}
-        onCancel={confirmCancel}
+        onCancel={done ? closeModal : confirmCancel}
+        maskClosable={false}
         footer={null}
         width={1100}
         centered
@@ -329,10 +601,12 @@ const Buildings: React.FC = () => {
             <Result
               status="success"
               icon={<CheckCircleOutlined style={{ color: PRIMARY, fontSize: 56 }} />}
-              title={<span style={{ color: PRIMARY, fontWeight: 700 }}>تم إضافة المبنى بنجاح!</span>}
-              subTitle="سيظهر المبنى الجديد في قائمة المباني"
+              title={<span style={{ color: PRIMARY, fontWeight: 700 }}>تم إضافة المبنى بنجاح!{created ? ` (${created.code})` : ''}</span>}
+              subTitle={created?.warnings.length
+                ? <Alert type="warning" showIcon style={{ textAlign: 'start', borderRadius: 8 }} message="ملاحظات" description={<ul style={{ margin: 0, paddingInlineStart: 18 }}>{created.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>} />
+                : 'سيظهر المبنى الجديد في قائمة المباني'}
               extra={[
-                <Button key="another" onClick={() => { setCurrentStep(0); setDone(false); form.resetFields(); }}>إضافة مبنى آخر</Button>,
+                <Button key="another" onClick={() => { setCurrentStep(0); setDone(false); setCreated(null); setPrimaryOwnerIdx(0); setDefaultPhones({ 0: 0 }); setDefaultEmails({ 0: 0 }); form.resetFields(); form.setFieldsValue({ owners: [{ ownerType: 'individual', phones: [''], emails: [''] }] }); }}>إضافة مبنى آخر</Button>,
                 <Button key="close" type="primary" style={{ background: PRIMARY, borderColor: PRIMARY }} onClick={closeModal}>إغلاق</Button>,
               ]}
             />
@@ -344,9 +618,8 @@ const Buildings: React.FC = () => {
                   <Text type="secondary" style={{ display: 'block', marginBottom: 20, fontSize: 13 }}>
                     أدخل المعلومات الأساسية للمبنى
                   </Text>
-                  <Form.Item name="no" label="رقم المبنى" rules={[{ required: true, message: 'الرجاء إدخال رقم المبنى' }]}>
-                    <Input prefix={<NumberOutlined style={{ color: '#bbb' }} />} placeholder="مثال: B-007" size="large" style={{ borderRadius: 8 }} />
-                  </Form.Item>
+                  <Alert type="info" showIcon icon={<NumberOutlined />} style={{ marginBottom: 16, borderRadius: 8 }}
+                    message="رقم المبنى يُولَّد تلقائياً عند الحفظ (مثال: B-007)" />
                   <Form.Item name="name" label="اسم المبنى (عربي)" rules={[{ required: true, message: 'الرجاء إدخال اسم المبنى بالعربي' }]}>
                     <Input prefix={<BankOutlined style={{ color: '#bbb' }} />} placeholder="اسم المبنى بالعربي" size="large" style={{ borderRadius: 8 }} />
                   </Form.Item>
@@ -355,13 +628,17 @@ const Buildings: React.FC = () => {
                   </Form.Item>
                   <Form.Item name="branch" label="الفرع" rules={[{ required: true, message: 'الرجاء اختيار الفرع' }]}>
                     <Select placeholder="اختر الفرع" size="large" style={{ borderRadius: 8 }}>
-                      {['أبوظبي', 'دبي', 'الشارقة', 'عجمان', 'الفجيرة'].map(b => <Option key={b} value={b}><EnvironmentOutlined style={{ marginInlineEnd: 6 }} />{b}</Option>)}
+                      {(ref?.branches ?? []).map(b => <Option key={b.id} value={b.id}><EnvironmentOutlined style={{ marginInlineEnd: 6 }} />{locName(b, isAr)}</Option>)}
                     </Select>
                   </Form.Item>
                   <Form.Item name="type" label="نوع المبنى" rules={[{ required: true, message: 'الرجاء اختيار نوع المبنى' }]}>
                     <Select placeholder="اختر نوع المبنى" size="large" style={{ borderRadius: 8 }}>
-                      <Option value="residential"><HomeOutlined style={{ marginInlineEnd: 6 }} />سكني</Option>
-                      <Option value="commercial"><ShopOutlined style={{ marginInlineEnd: 6 }} />تجاري</Option>
+                      {buildingTypes.map(t => (
+                        <Option key={t.code} value={t.code}>
+                          {t.code === 'commercial' ? <ShopOutlined style={{ marginInlineEnd: 6 }} /> : t.code === 'mixed' ? <BuildOutlined style={{ marginInlineEnd: 6 }} /> : <HomeOutlined style={{ marginInlineEnd: 6 }} />}
+                          {t.label}
+                        </Option>
+                      ))}
                     </Select>
                   </Form.Item>
                 </div>
@@ -537,16 +814,31 @@ const Buildings: React.FC = () => {
                             </Form.Item>
 
                             {/* Emirate */}
-                            <Form.Item name={[ownerField.name, 'ownerEmirate']} label="الإمارة" rules={[{ required: true, message: 'الرجاء اختيار الإمارة' }]}>
-                              <Select placeholder="اختر الإمارة" size="large" style={{ borderRadius: 8 }}>
-                                {['أبوظبي', 'دبي', 'الشارقة', 'عجمان', 'أم القيوين', 'رأس الخيمة', 'الفجيرة'].map(e => (
-                                  <Option key={e} value={e}><EnvironmentOutlined style={{ marginInlineEnd: 6 }} />{e}</Option>
-                                ))}
-                              </Select>
-                            </Form.Item>
+                            <Row gutter={12}>
+                              <Col span={12}>
+                                <Form.Item name={[ownerField.name, 'ownerEmirate']} label="الإمارة" rules={[{ required: true, message: 'الرجاء اختيار الإمارة' }]}>
+                                  <Select placeholder="اختر الإمارة" size="large" style={{ borderRadius: 8 }}
+                                    onChange={() => form.setFieldValue(['owners', ownerField.name, 'ownerCity'], undefined)}>
+                                    {(ref?.emirates ?? []).map(e => (
+                                      <Option key={e.id} value={e.id}><EnvironmentOutlined style={{ marginInlineEnd: 6 }} />{locName(e, isAr)}</Option>
+                                    ))}
+                                  </Select>
+                                </Form.Item>
+                              </Col>
+                              <Col span={12}>
+                                <Form.Item noStyle shouldUpdate={(prev, cur) => prev.owners?.[ownerIndex]?.ownerEmirate !== cur.owners?.[ownerIndex]?.ownerEmirate}>
+                                  {({ getFieldValue }) => (
+                                    <Form.Item name={[ownerField.name, 'ownerCity']} label="المدينة">
+                                      <Select placeholder="اختر المدينة" size="large" allowClear showSearch optionFilterProp="label" style={{ borderRadius: 8 }}
+                                        options={citiesOf(getFieldValue(['owners', ownerIndex, 'ownerEmirate'])).map(c => ({ value: c.id, label: locName(c, isAr) }))} />
+                                    </Form.Item>
+                                  )}
+                                </Form.Item>
+                              </Col>
+                            </Row>
 
                             {/* Emirates ID */}
-                            <Divider orientation="right" style={{ fontSize: 12, color: '#888', margin: '10px 0 8px' }}>هوية الإمارات</Divider>
+                            <Divider titlePlacement="start" style={{ fontSize: 12, color: '#888', margin: '10px 0 8px' }}>هوية الإمارات</Divider>
                             <Row gutter={12}>
                               <Col span={12}>
                                 <Form.Item name={[ownerField.name, 'emiratesId']} label="رقم هوية الإمارات" rules={[{ required: true, message: 'الرجاء إدخال رقم الهوية' }]}>
@@ -554,7 +846,7 @@ const Buildings: React.FC = () => {
                                 </Form.Item>
                               </Col>
                               <Col span={12}>
-                                <Form.Item name={[ownerField.name, 'emiratesIdFile']} label="صورة هوية الإمارات">
+                                <Form.Item name={[ownerField.name, 'emiratesIdFile']} label="صورة هوية الإمارات" valuePropName="fileList" getValueFromEvent={normFile}>
                                   <Upload maxCount={1} beforeUpload={() => false} accept=".jpg,.jpeg,.png,.pdf">
                                     <Button icon={<UploadOutlined />} size="large" style={{ width: '100%', borderRadius: 8 }}>رفع الهوية</Button>
                                   </Upload>
@@ -563,7 +855,7 @@ const Buildings: React.FC = () => {
                             </Row>
 
                             {/* Bank Info */}
-                            <Divider orientation="right" style={{ fontSize: 12, color: '#888', margin: '10px 0 8px' }}>المعلومات البنكية</Divider>
+                            <Divider titlePlacement="start" style={{ fontSize: 12, color: '#888', margin: '10px 0 8px' }}>المعلومات البنكية</Divider>
                             <Row gutter={12}>
                               <Col span={12}>
                                 <Form.Item name={[ownerField.name, 'bankName']} label="اسم البنك">
@@ -578,12 +870,12 @@ const Buildings: React.FC = () => {
                             </Row>
 
                             {/* Company fields — conditional */}
-                            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.owners?.[ownerIndex]?.ownerType !== cur.owners?.[ownerIndex]?.ownerType}>
+                            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.owners?.[ownerIndex]?.ownerType !== cur.owners?.[ownerIndex]?.ownerType || prev.owners?.[ownerIndex]?.companyEmirate !== cur.owners?.[ownerIndex]?.companyEmirate}>
                               {({ getFieldValue }) => {
                                 const ownerType = getFieldValue(['owners', ownerIndex, 'ownerType']);
                                 return ownerType === 'company' ? (
                                   <>
-                                    <Divider orientation="right" style={{ fontSize: 12, color: '#888', margin: '10px 0 8px' }}>معلومات الشركة</Divider>
+                                    <Divider titlePlacement="start" style={{ fontSize: 12, color: '#888', margin: '10px 0 8px' }}>معلومات الشركة</Divider>
 
                                     {/* Company Names */}
                                     <Row gutter={12}>
@@ -603,16 +895,18 @@ const Buildings: React.FC = () => {
                                     <Row gutter={12}>
                                       <Col span={8}>
                                         <Form.Item name={[ownerField.name, 'companyEmirate']} label="الإمارة" rules={[{ required: true, message: 'الرجاء اختيار الإمارة' }]}>
-                                          <Select placeholder="اختر الإمارة" size="large" style={{ borderRadius: 8 }}>
-                                            {['أبوظبي', 'دبي', 'الشارقة', 'عجمان', 'أم القيوين', 'رأس الخيمة', 'الفجيرة'].map(e => (
-                                              <Option key={e} value={e}>{e}</Option>
+                                          <Select placeholder="اختر الإمارة" size="large" style={{ borderRadius: 8 }}
+                                            onChange={() => form.setFieldValue(['owners', ownerField.name, 'companyCity'], undefined)}>
+                                            {(ref?.emirates ?? []).map(e => (
+                                              <Option key={e.id} value={e.id}>{locName(e, isAr)}</Option>
                                             ))}
                                           </Select>
                                         </Form.Item>
                                       </Col>
                                       <Col span={8}>
                                         <Form.Item name={[ownerField.name, 'companyCity']} label="المدينة">
-                                          <Input prefix={<EnvironmentOutlined style={{ color: '#bbb' }} />} placeholder="المدينة" size="large" style={{ borderRadius: 8 }} />
+                                          <Select placeholder="المدينة" size="large" allowClear showSearch optionFilterProp="label" style={{ borderRadius: 8 }}
+                                            options={citiesOf(getFieldValue(['owners', ownerIndex, 'companyEmirate'])).map(c => ({ value: c.id, label: locName(c, isAr) }))} />
                                         </Form.Item>
                                       </Col>
                                       <Col span={8}>
@@ -626,7 +920,7 @@ const Buildings: React.FC = () => {
                                     </Form.Item>
 
                                     {/* Trade License & Tax */}
-                                    <Divider orientation="right" style={{ fontSize: 12, color: '#888', margin: '10px 0 8px' }}>الوثائق القانونية</Divider>
+                                    <Divider titlePlacement="start" style={{ fontSize: 12, color: '#888', margin: '10px 0 8px' }}>الوثائق القانونية</Divider>
                                     <Row gutter={12}>
                                       <Col span={12}>
                                         <Form.Item name={[ownerField.name, 'tradeLicenseNo']} label="رقم الرخصة التجارية" rules={[{ required: true, message: 'الرجاء إدخال رقم الرخصة' }]}>
@@ -634,7 +928,7 @@ const Buildings: React.FC = () => {
                                         </Form.Item>
                                       </Col>
                                       <Col span={12}>
-                                        <Form.Item name={[ownerField.name, 'tradeLicenseFile']} label="الرخصة التجارية (مرفق)" rules={[{ required: true, message: 'الرجاء إرفاق الرخصة' }]}>
+                                        <Form.Item name={[ownerField.name, 'tradeLicenseFile']} label="الرخصة التجارية (مرفق)" valuePropName="fileList" getValueFromEvent={normFile} rules={[{ required: true, message: 'الرجاء إرفاق الرخصة' }]}>
                                           <Upload maxCount={1} beforeUpload={() => false} accept=".jpg,.jpeg,.png,.pdf">
                                             <Button icon={<UploadOutlined />} size="large" style={{ width: '100%', borderRadius: 8 }}>رفع الرخصة</Button>
                                           </Upload>
@@ -648,7 +942,7 @@ const Buildings: React.FC = () => {
                                         </Form.Item>
                                       </Col>
                                       <Col span={12}>
-                                        <Form.Item name={[ownerField.name, 'taxFile']} label="شهادة الضريبة (اختياري)">
+                                        <Form.Item name={[ownerField.name, 'taxFile']} label="شهادة الضريبة (اختياري)" valuePropName="fileList" getValueFromEvent={normFile}>
                                           <Upload maxCount={1} beforeUpload={() => false} accept=".jpg,.jpeg,.png,.pdf">
                                             <Button icon={<UploadOutlined />} size="large" style={{ width: '100%', borderRadius: 8 }}>رفع شهادة الضريبة</Button>
                                           </Upload>
@@ -715,20 +1009,18 @@ const Buildings: React.FC = () => {
                               <Col span={8}>
                                 <Form.Item name={[tankField.name, 'gasType']} label="نوع الغاز" rules={[{ required: true, message: 'الرجاء اختيار نوع الغاز' }]}>
                                   <Select placeholder="اختر النوع" size="large" style={{ borderRadius: 8 }}>
-                                    <Option value="lpg">LPG — غاز البترول المسال</Option>
-                                    <Option value="cng">CNG — الغاز الطبيعي المضغوط</Option>
-                                    <Option value="lng">LNG — الغاز الطبيعي المسال</Option>
-                                    <Option value="natural">غاز طبيعي</Option>
-                                    <Option value="other">أخرى</Option>
+                                    {(ref?.gasTypes ?? []).map(g => <Option key={g.code} value={g.code}>{g.code} — {locName(g, isAr)}</Option>)}
                                   </Select>
                                 </Form.Item>
                               </Col>
                               <Col span={8}>
-                                <Form.Item name={[tankField.name, 'status']} label="الحالة" initialValue="active">
+                                <Form.Item name={[tankField.name, 'status']} label="الحالة" initialValue="ok">
                                   <Select size="large" style={{ borderRadius: 8 }}>
-                                    <Option value="active"><Tag color="success">نشط</Tag></Option>
-                                    <Option value="inactive"><Tag color="default">غير نشط</Tag></Option>
-                                    <Option value="maintenance"><Tag color="warning">صيانة</Tag></Option>
+                                    {tankStatuses.map(st => (
+                                      <Option key={st.code} value={st.code}>
+                                        <Tag color={st.code === 'ok' ? 'success' : st.code === 'low' || st.code === 'maintenance' ? 'warning' : 'default'}>{st.label}</Tag>
+                                      </Option>
+                                    ))}
                                   </Select>
                                 </Form.Item>
                               </Col>
@@ -736,8 +1028,9 @@ const Buildings: React.FC = () => {
 
                             <Row gutter={12}>
                               <Col span={8}>
-                                <Form.Item name={[tankField.name, 'capacity']} label="السعة (كغ)" rules={[{ required: true, message: 'الرجاء إدخال السعة' }]}>
-                                  <Input type="number" min={1} prefix={<DatabaseOutlined style={{ color: '#bbb' }} />} placeholder="500" size="large" style={{ borderRadius: 8, direction: 'ltr' }} addonAfter="كغ" />
+                                <Form.Item name={[tankField.name, 'capacity']} label="السعة (لتر)"
+                                  rules={[{ required: true, message: 'الرجاء إدخال السعة' }, { validator: (_, v) => (v == null || v === '' || Number(v) > 0 ? Promise.resolve() : Promise.reject(new Error('السعة يجب أن تكون أكبر من صفر'))) }]}>
+                                  <Input type="number" min={1} prefix={<DatabaseOutlined style={{ color: '#bbb' }} />} placeholder="5000" size="large" style={{ borderRadius: 8, direction: 'ltr' }} addonAfter="لتر" />
                                 </Form.Item>
                               </Col>
                               <Col span={8}>
@@ -765,9 +1058,25 @@ const Buildings: React.FC = () => {
                               </Col>
                             </Row>
 
-                            <Form.Item name={[tankField.name, 'notes']} label="ملاحظات">
-                              <Input.TextArea rows={2} placeholder="أي ملاحظات إضافية عن الخزان..." style={{ borderRadius: 8 }} />
-                            </Form.Item>
+                            <Row gutter={12}>
+                              <Col span={12}>
+                                <Form.Item name={[tankField.name, 'currentLevel']} label="المستوى الحالي (لتر)" dependencies={[['tanks', tankField.name, 'capacity']]}
+                                  rules={[({ getFieldValue }) => ({ validator: (_, v) => {
+                                    if (v == null || v === '') return Promise.resolve();
+                                    const cap = Number(getFieldValue(['tanks', tankField.name, 'capacity']));
+                                    if (Number(v) < 0) return Promise.reject(new Error('لا يمكن أن يكون سالباً'));
+                                    if (cap && Number(v) > cap) return Promise.reject(new Error('المستوى أكبر من السعة'));
+                                    return Promise.resolve();
+                                  } })]}>
+                                  <Input type="number" min={0} placeholder="اختياري" size="large" style={{ borderRadius: 8, direction: 'ltr' }} addonAfter="لتر" />
+                                </Form.Item>
+                              </Col>
+                              <Col span={12}>
+                                <Form.Item name={[tankField.name, 'nextInspection']} label="الفحص الدوري القادم">
+                                  <Input type="date" size="large" style={{ borderRadius: 8, direction: 'ltr' }} />
+                                </Form.Item>
+                              </Col>
+                            </Row>
                           </Card>
                         ))}
 
@@ -775,7 +1084,7 @@ const Buildings: React.FC = () => {
                           type="dashed"
                           block
                           icon={<PlusOutlined />}
-                          onClick={() => addTank({ status: 'active' })}
+                          onClick={() => addTank({ status: 'ok' })}
                           style={{ borderRadius: 10, height: 44, fontSize: 14, borderColor: '#0958d9', color: '#0958d9' }}
                         >
                           إضافة خزان
@@ -804,15 +1113,13 @@ const Buildings: React.FC = () => {
                     <Col span={12}>
                       <Form.Item name="status" label="حالة المبنى" initialValue="active">
                         <Select size="large" style={{ borderRadius: 8 }}>
-                          <Option value="active"><Tag color="success">نشط</Tag></Option>
-                          <Option value="inactive"><Tag color="default">غير نشط</Tag></Option>
-                          <Option value="maintenance"><Tag color="warning">تحت الصيانة</Tag></Option>
+                          {buildingStatuses.map(st => <Option key={st.code} value={st.code}><Tag color={st.code === 'active' ? 'success' : 'default'}>{st.label}</Tag></Option>)}
                         </Select>
                       </Form.Item>
                     </Col>
                     <Col span={12}>
-                      <Form.Item name="year" label="سنة البناء">
-                        <Input type="number" placeholder="مثال: 2018" size="large" style={{ borderRadius: 8 }} />
+                      <Form.Item name="totalFloors" label="عدد الطوابق">
+                        <InputNumber min={0} max={200} placeholder="مثال: 6" size="large" style={{ width: '100%', borderRadius: 8 }} />
                       </Form.Item>
                     </Col>
                   </Row>
@@ -848,13 +1155,7 @@ const Buildings: React.FC = () => {
                       <Col span={4}>
                         <div style={{ marginBottom: 4, fontSize: 12, color: '#555' }}>نوع الوحدة</div>
                         <Select value={genUnitType} onChange={setGenUnitType} size="large" style={{ width: '100%', borderRadius: 8 }}>
-                          <Option value="apartment">شقة</Option>
-                          <Option value="studio">استوديو</Option>
-                          <Option value="villa">فيلا</Option>
-                          <Option value="shop">محل تجاري</Option>
-                          <Option value="office">مكتب</Option>
-                          <Option value="warehouse">مستودع</Option>
-                          <Option value="other">أخرى</Option>
+                          {unitTypes.map(t => <Option key={t.code} value={t.code}>{t.label}</Option>)}
                         </Select>
                       </Col>
                       <Col span={3}>
@@ -886,7 +1187,7 @@ const Buildings: React.FC = () => {
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                               <thead style={{ background: '#fafafa', position: 'sticky', top: 0, zIndex: 1 }}>
                                 <tr>
-                                  {['رقم الوحدة', 'الطابق', 'النوع', 'المساحة م²', 'الحالة', 'عداد الغاز', 'المستأجر', ''].map(h => (
+                                  {['رقم الوحدة', 'الطابق', 'النوع', 'المساحة م²', 'الحالة', ''].map(h => (
                                     <th key={h} style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, color: '#555', borderBottom: '1px solid #f0f0f0', whiteSpace: 'nowrap' }}>{h}</th>
                                   ))}
                                 </tr>
@@ -907,13 +1208,7 @@ const Buildings: React.FC = () => {
                                     <td style={{ padding: '4px 8px' }}>
                                       <Form.Item name={[unitField.name, 'type']} noStyle>
                                         <Select size="small" style={{ width: 110, borderRadius: 6 }}>
-                                          <Option value="apartment">شقة</Option>
-                                          <Option value="studio">استوديو</Option>
-                                          <Option value="villa">فيلا</Option>
-                                          <Option value="shop">محل</Option>
-                                          <Option value="office">مكتب</Option>
-                                          <Option value="warehouse">مستودع</Option>
-                                          <Option value="other">أخرى</Option>
+                                          {unitTypes.map(t => <Option key={t.code} value={t.code}>{t.label}</Option>)}
                                         </Select>
                                       </Form.Item>
                                     </td>
@@ -924,96 +1219,15 @@ const Buildings: React.FC = () => {
                                     </td>
                                     <td style={{ padding: '4px 8px' }}>
                                       <Form.Item name={[unitField.name, 'status']} noStyle>
-                                        <Select size="small" style={{ width: 100 }}>
-                                          <Option value="vacant"><Tag color="blue" style={{ margin: 0, fontSize: 11 }}>شاغرة</Tag></Option>
-                                          <Option value="occupied"><Tag color="success" style={{ margin: 0, fontSize: 11 }}>مشغولة</Tag></Option>
-                                          <Option value="maintenance"><Tag color="warning" style={{ margin: 0, fontSize: 11 }}>صيانة</Tag></Option>
-                                        </Select>
-                                      </Form.Item>
-                                    </td>
-                                    {/* Gas Meter */}
-                                    <td style={{ padding: '4px 8px' }}>
-                                      <Form.Item name={[unitField.name, 'gasMeter']} noStyle>
-                                        <Select
-                                          size="small"
-                                          allowClear
-                                          placeholder="اختر عداداً"
-                                          style={{ width: 130 }}
-                                          dropdownRender={menu => (
-                                            <>
-                                              {menu}
-                                              <Divider style={{ margin: '4px 0' }} />
-                                              <div style={{ padding: '4px 8px', display: 'flex', gap: 4 }}>
-                                                <Input
-                                                  size="small"
-                                                  placeholder="رقم عداد جديد"
-                                                  value={newMeterInput}
-                                                  style={{ direction: 'ltr', borderRadius: 4 }}
-                                                  onChange={e => setNewMeterInput(e.target.value)}
-                                                  onKeyDown={e => e.key === 'Enter' && addQuickMeter()}
-                                                />
-                                                <Button size="small" type="primary" icon={<PlusOutlined />} onClick={addQuickMeter} />
-                                              </div>
-                                            </>
-                                          )}
-                                        >
-                                          {mockMeters.map(m => (
-                                            <Option key={m} value={m}>{m}</Option>
-                                          ))}
-                                        </Select>
-                                      </Form.Item>
-                                    </td>
-
-                                    {/* Tenant */}
-                                    <td style={{ padding: '4px 8px' }}>
-                                      <Form.Item name={[unitField.name, 'tenant']} noStyle>
-                                        <Select
-                                          size="small"
-                                          allowClear
-                                          placeholder="اختر مستأجراً"
-                                          style={{ width: 150 }}
-                                          optionFilterProp="label"
-                                          showSearch
-                                          dropdownRender={menu => (
-                                            <>
-                                              {menu}
-                                              <Divider style={{ margin: '4px 0' }} />
-                                              <div style={{ padding: '6px 8px' }}>
-                                                <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>إضافة مستأجر جديد</div>
-                                                <Input
-                                                  size="small"
-                                                  placeholder="الاسم الكامل"
-                                                  value={newTenantName}
-                                                  style={{ borderRadius: 4, marginBottom: 4 }}
-                                                  onChange={e => setNewTenantName(e.target.value)}
-                                                />
-                                                <div style={{ display: 'flex', gap: 4 }}>
-                                                  <Input
-                                                    size="small"
-                                                    placeholder="+971 5X XXX XXXX"
-                                                    value={newTenantPhone}
-                                                    style={{ direction: 'ltr', borderRadius: 4, flex: 1 }}
-                                                    onChange={e => setNewTenantPhone(e.target.value)}
-                                                    onKeyDown={e => e.key === 'Enter' && addQuickTenant()}
-                                                  />
-                                                  <Button size="small" type="primary" icon={<PlusOutlined />} onClick={addQuickTenant} />
-                                                </div>
-                                              </div>
-                                            </>
-                                          )}
-                                        >
-                                          {mockTenants.map(t => (
-                                            <Option key={t.id} value={t.id} label={t.name}>
-                                              <div style={{ lineHeight: 1.4 }}>
-                                                <div style={{ fontWeight: 500, fontSize: 12 }}>{t.name}</div>
-                                                <div style={{ fontSize: 11, color: '#888', direction: 'ltr' }}>{t.phone}</div>
-                                              </div>
+                                        <Select size="small" style={{ width: 120 }}>
+                                          {unitStatuses.map(st => (
+                                            <Option key={st.code} value={st.code}>
+                                              <Tag color={st.code === 'vacant' ? 'blue' : st.code === 'occupied' ? 'success' : st.code === 'maintenance' ? 'warning' : 'purple'} style={{ margin: 0, fontSize: 11 }}>{st.label}</Tag>
                                             </Option>
                                           ))}
                                         </Select>
                                       </Form.Item>
                                     </td>
-
                                     <td style={{ padding: '4px 8px' }}>
                                       <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => removeUnit(unitField.name)} />
                                     </td>
@@ -1035,7 +1249,7 @@ const Buildings: React.FC = () => {
                           type="dashed"
                           size="small"
                           icon={<PlusOutlined />}
-                          onClick={() => addUnit({ type: 'apartment', status: 'vacant', area: '' })}
+                          onClick={() => addUnit({ type: 'residential', status: 'vacant', area: '' })}
                           style={{ marginTop: 10, borderRadius: 8 }}
                         >
                           إضافة وحدة يدوياً
@@ -1052,10 +1266,45 @@ const Buildings: React.FC = () => {
                   <Text type="secondary" style={{ display: 'block', marginBottom: 20, fontSize: 13 }}>
                     أضف تفاصيل الموقع وأي ملاحظات إضافية
                   </Text>
+                  <Row gutter={12}>
+                    <Col span={12}>
+                      <Form.Item name="emirate" label="الإمارة">
+                        <Select placeholder="اختر الإمارة" size="large" allowClear style={{ borderRadius: 8 }} onChange={() => form.setFieldValue('city', undefined)}>
+                          {(ref?.emirates ?? []).map(e => <Option key={e.id} value={e.id}>{locName(e, isAr)}</Option>)}
+                        </Select>
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item noStyle shouldUpdate={(prev, cur) => prev.emirate !== cur.emirate}>
+                        {({ getFieldValue }) => (
+                          <Form.Item name="city" label="المدينة">
+                            <Select placeholder="اختر المدينة" size="large" allowClear showSearch optionFilterProp="label" style={{ borderRadius: 8 }}
+                              options={citiesOf(getFieldValue('emirate')).map(c => ({ value: c.id, label: locName(c, isAr) }))} />
+                          </Form.Item>
+                        )}
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item name="zone" label="المنطقة">
+                        <Input placeholder="مثال: المنطقة 4" size="large" style={{ borderRadius: 8 }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item name="street" label="الشارع">
+                        <Input placeholder="مثال: شارع خليفة" size="large" style={{ borderRadius: 8 }} />
+                      </Form.Item>
+                    </Col>
+                    <Col span={8}>
+                      <Form.Item name="poBox" label="صندوق البريد">
+                        <Input placeholder="12345" size="large" style={{ borderRadius: 8, direction: 'ltr' }} />
+                      </Form.Item>
+                    </Col>
+                  </Row>
                   <Form.Item name="address" label="العنوان التفصيلي">
                     <Input.TextArea rows={3} placeholder="الشارع، المنطقة، المدينة..." style={{ borderRadius: 8 }} />
                   </Form.Item>
-                  <Form.Item name="coordinates" label="الإحداثيات (اختياري)">
+                  <Form.Item name="coordinates" label="الإحداثيات (اختياري)"
+                    rules={[{ validator: (_, v) => (!v || parseCoordinates(v).latitude !== undefined ? Promise.resolve() : Promise.reject(new Error('صيغة غير صحيحة — مثال: 24.4539, 54.3773'))) }]}>
                     <Input placeholder="مثال: 24.4539° N, 54.3773° E" size="large" style={{ borderRadius: 8 }} />
                   </Form.Item>
                   <Form.Item name="notes" label="ملاحظات">
@@ -1070,7 +1319,7 @@ const Buildings: React.FC = () => {
         {/* Modal Footer */}
         {!done && (
           <div style={{ padding: '16px 32px 24px', display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #f0f0f0' }}>
-            <Button size="large" style={{ borderRadius: 8, minWidth: 100 }} onClick={currentStep === 0 ? confirmCancel : prevStep}>
+            <Button size="large" style={{ borderRadius: 8, minWidth: 100 }} disabled={saving} onClick={currentStep === 0 ? confirmCancel : prevStep}>
               {currentStep === 0 ? 'إلغاء' : 'السابق'}
             </Button>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -1083,6 +1332,7 @@ const Buildings: React.FC = () => {
               <Button
                 type="primary" size="large"
                 style={{ background: PRIMARY, borderColor: PRIMARY, borderRadius: 8, minWidth: 120, fontWeight: 600 }}
+                loading={saving}
                 onClick={currentStep < STEPS.length - 1 ? nextStep : onFinish}
               >
                 {currentStep < STEPS.length - 1 ? 'التالي ←' : 'حفظ المبنى'}
@@ -1094,8 +1344,8 @@ const Buildings: React.FC = () => {
 
       {/* View Modal */}
       <Modal open={!!viewModal} onCancel={() => setViewModal(null)} footer={
-        <Button type="primary" icon={<EditOutlined />} style={{ background: PRIMARY, borderColor: PRIMARY }}>تعديل البيانات</Button>
-      } centered width={420} title={<Text strong>تفاصيل المبنى — {viewModal?.no}</Text>}>
+        canManage ? <Button type="primary" icon={<EditOutlined />} style={{ background: PRIMARY, borderColor: PRIMARY }} onClick={() => { if (viewModal) setEditId(viewModal.id); }}>تعديل البيانات</Button> : null
+      } centered width={420} title={<Text strong>تفاصيل المبنى — {viewModal?.code}</Text>}>
         {viewModal && (
           <div>
             <div style={{ background: PRIMARY_LIGHT, borderRadius: 12, padding: 20, marginBottom: 20, textAlign: 'center' }}>
@@ -1104,20 +1354,21 @@ const Buildings: React.FC = () => {
               <Tag color="success" style={{ marginTop: 8 }}>{viewModal.status === 'active' ? 'نشط' : 'غير نشط'}</Tag>
             </div>
             <Row gutter={[12, 12]}>
-              <Col span={12}><Statistic title="رقم المبنى" value={viewModal.no} valueStyle={{ fontSize: 16, color: PRIMARY }} /></Col>
+              <Col span={12}><Statistic title="رقم المبنى" value={viewModal.code} valueStyle={{ fontSize: 16, color: PRIMARY }} /></Col>
               <Col span={12}><Statistic title="الفرع" value={viewModal.branch} valueStyle={{ fontSize: 16 }} /></Col>
               <Col span={12}><Statistic title="إجمالي الوحدات" value={viewModal.units} valueStyle={{ fontSize: 16 }} /></Col>
-              <Col span={12}><Statistic title="نسبة الإشغال" value={`${Math.round((viewModal.occupied / viewModal.units) * 100)}%`} valueStyle={{ fontSize: 16, color: PRIMARY }} /></Col>
+              <Col span={12}><Statistic title="نسبة الإشغال" value={viewModal.units ? `${Math.round((viewModal.occupied / viewModal.units) * 100)}%` : '—'} valueStyle={{ fontSize: 16, color: PRIMARY }} /></Col>
               <Col span={12}><Statistic title="مشغولة" value={viewModal.occupied} valueStyle={{ fontSize: 16, color: '#1565c0' }} /></Col>
               <Col span={12}><Statistic title="شاغرة" value={viewModal.vacant} valueStyle={{ fontSize: 16, color: '#c62828' }} /></Col>
             </Row>
             <Divider />
-            <Button block icon={<HomeOutlined />} style={{ borderRadius: 8, marginBottom: 8 }}>عرض الوحدات</Button>
-            <Button block icon={<FileTextOutlined />} style={{ borderRadius: 8 }}>عقود هذا المبنى</Button>
+            <Button block icon={<HomeOutlined />} style={{ borderRadius: 8, marginBottom: 8 }} onClick={() => viewModal && openProfile(viewModal, 'units')}>عرض الوحدات</Button>
+            <Button block icon={<FileTextOutlined />} style={{ borderRadius: 8 }} onClick={() => viewModal && openProfile(viewModal, 'contracts')}>عقود هذا المبنى</Button>
           </div>
         )}
       </Modal>
 
+      <EditBuildingModal buildingId={editId} onClose={() => setEditId(null)} onSaved={() => { setEditId(null); setViewModal(null); reload(); }} />
     </div>
   );
 };

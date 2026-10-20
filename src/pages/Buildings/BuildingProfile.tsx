@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Row, Col, Card, Table, Button, Tag, Typography, Divider, Tabs,
-  Descriptions, Timeline, Badge, Avatar, Space, Tooltip, Progress,
-  Statistic, Empty, List, Input, Steps, Modal, Upload, Dropdown} from 'antd';
+  Descriptions, Timeline, Avatar, Space, Tooltip, Progress,
+  Empty, List, Input, Steps, Modal, Dropdown, message, Form, Select, InputNumber, DatePicker} from 'antd';
+import dayjs from 'dayjs';
 import {
   ArrowLeftOutlined, BankOutlined, HomeOutlined, UserOutlined,
   PhoneOutlined, MailOutlined, StarFilled, EnvironmentOutlined,
@@ -12,9 +13,9 @@ import {
   BuildOutlined, SafetyCertificateOutlined, ClockCircleOutlined,
   FireOutlined, ApartmentOutlined, BarChartOutlined, WarningOutlined,
   TeamOutlined, GlobalOutlined, PlusOutlined, BellOutlined,
-  CreditCardOutlined, ContainerOutlined, SearchOutlined, FilterOutlined,
+  CreditCardOutlined, ContainerOutlined, SearchOutlined, 
   AuditOutlined, SolutionOutlined, FileDoneOutlined, AlertOutlined,
-  DisconnectOutlined, ThunderboltOutlined, SwapOutlined} from '@ant-design/icons';
+  DisconnectOutlined, ThunderboltOutlined, SwapOutlined, PauseCircleOutlined, PlayCircleOutlined, DeleteOutlined} from '@ant-design/icons';
 import ReactApexChart from 'react-apexcharts';
 import AddUnitModal from './AddUnitModal';
 import AddMeterModal from './AddMeterModal';
@@ -27,11 +28,28 @@ import GasContractDrawer from './GasContractDrawer';
 import TenantInvoicesDrawer from './TenantInvoicesDrawer';
 import TenantProfileDrawer from './TenantProfileDrawer';
 import AddAmcContractModal from './AddAmcContractModal';
-import { RefillRequestDrawer, NewRefillRequestModal } from './RefillRequestDrawer';
+import AmcInvoicesPanel from './AmcInvoicesPanel';
+import BuildingTanksYard from './BuildingTanksYard';
+import { BuildingVisitsTab, BuildingServiceRequestsTab } from './BuildingOpsTabs';
+import CocRenewalModal from './CocRenewalModal';
+import UnitProfileDrawer from './UnitProfileDrawer';
+import { unitsApi, type UnitDto } from '../../api/units';
+import { BuildingOverviewLive, BuildingOwnersLive, BuildingDocsLive, BuildingActivityLive, BuildingFinanceLive } from './BuildingLiveTabs';
+import { CocCertificateDetails } from './CocStepPanels';
+import { RecordVisitModal, UploadReportModal } from './AmcVisitModals';
+import BuildingFloorPlan from './BuildingFloorPlan';
+import { buildingsApi } from '../../api/buildings';
+import EditBuildingModal from './EditBuildingModal';
+import BuildingMetersTab from './BuildingMetersTab';
+import BuildingTenantsTab from './BuildingTenantsTab';
+import { api, errorMessage, type Paged } from '../../api/client';
+import { useAuth } from '../../auth/AuthContext';
+import { RefillRequestDrawer, NewRefillRequestModal, mapLiveRefill } from './RefillRequestDrawer';
 import type { RefillRequestItem } from './RefillRequestDrawer';
 import type { SupplyContractRecord } from './GasContractDrawer';
 import type { MeterServiceType } from './MeterServiceModal';
 import type { MeterRecord } from './meterTypes';
+import { HistoryButton, useTrackView } from '../../components/history/RecordHistory';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -540,10 +558,56 @@ const unitPieOptions: any = {
   dataLabels: { enabled: true, formatter: (v: number) => `${Math.round(v)}%` },
 };
 
-interface BuildingProfileProps { onBack: () => void; }
+interface BuildingProfileProps { onBack: () => void; buildingId?: number; initialTab?: string; }
 
-const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
-  const [activeTab, setActiveTab] = useState('overview');
+/** Live header data from GET /buildings/{id} (the other tabs are still mock data). */
+interface LiveBuilding {
+  id: number; code: string; name?: string; nameEn?: string; branch?: string; city?: string;
+  typeLabel?: string; status?: string; statusLabel?: string; totalFloors?: number | null;
+  owners: unknown[]; tanks: unknown[];
+  stats: { units: number; occupied: number; vacant: number; meters?: number; tenants?: number; activeContracts?: number };
+}
+
+const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, initialTab }) => {
+  const [activeTab, setActiveTab] = useState(initialTab ?? (buildingId ? 'units' : 'overview'));
+  const [live, setLive] = useState<LiveBuilding | null>(null);
+  const [liveKey, setLiveKey] = useState(0);
+  const [editOpen, setEditOpen] = useState(false);
+  const { can } = useAuth();
+  const canManageBuilding = can('buildings.manage') && !!buildingId;
+  const setBuildingStatus = (status: 'active' | 'inactive') => Modal.confirm({
+    title: status === 'inactive' ? 'إيقاف المبنى؟' : 'تفعيل المبنى؟',
+    content: status === 'inactive' ? 'يبقى المبنى ووحداته وسجلاته محفوظة ويظهر كـ«غير نشط». يمكن تفعيله لاحقاً.' : 'سيعود المبنى إلى الحالة «نشط».',
+    okText: status === 'inactive' ? 'إيقاف' : 'تفعيل', cancelText: 'إلغاء', centered: true,
+    onOk: async () => {
+      try { await buildingsApi.setStatus(buildingId!, status); message.success(status === 'inactive' ? 'تم إيقاف المبنى' : 'تم تفعيل المبنى'); setLiveKey(k => k + 1); }
+      catch (e) { message.error(errorMessage(e), 6); }
+    },
+  });
+  const deleteBuilding = () => Modal.confirm({
+    title: 'حذف المبنى؟', content: 'حذف آمن: يختفي المبنى من القوائم مع الاحتفاظ بسجلاته في قاعدة البيانات. لا يمكن حذف مبنى عليه عقود توريد نشطة.',
+    okText: 'حذف', okType: 'danger', cancelText: 'إلغاء', centered: true,
+    onOk: async () => {
+      try { await buildingsApi.remove(buildingId!); message.success('تم حذف المبنى'); onBack(); }
+      catch (e) { message.error(errorMessage(e), 6); }
+    },
+  });
+  useEffect(() => {
+    if (!buildingId) return;
+    buildingsApi.get<LiveBuilding>(buildingId).then(setLive).catch(() => setLive(null));
+  }, [buildingId, liveKey]);
+  // header values: live building when opened from the list, otherwise the mock
+  const hd = live ? {
+    name: live.name ?? '', nameEn: live.nameEn ?? '', no: live.code, branch: live.branch ?? '', city: live.city ?? '',
+    statusLabel: live.statusLabel ?? live.status ?? '', typeLabel: live.typeLabel ?? '',
+    floors: live.totalFloors ?? '—', totalUnits: live.stats.units, occupied: live.stats.occupied, vacant: live.stats.vacant,
+    tanks: live.tanks.length, owners: live.owners.length,
+  } : {
+    name: building.name, nameEn: building.nameEn, no: building.no, branch: building.branch, city: building.address.city,
+    statusLabel: building.statusLabel, typeLabel: building.typeLabel,
+    floors: building.floors, totalUnits: building.totalUnits, occupied: building.occupied, vacant: building.vacant,
+    tanks: building.tanks.length, owners: building.owners.length,
+  };
   const [tenantSearch, setTenantSearch] = useState('');
   const [unitSearch, setUnitSearch] = useState('');
   const [unitFilter, setUnitFilter] = useState('all');
@@ -568,7 +632,93 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
   const [profileDrawerOpen, setProfileDrawerOpen] = useState(false);
   const [amcModalOpen, setAmcModalOpen] = useState(false);
   const [amcContracts, setAmcContracts] = useState<any[]>(building.amcContracts ?? []);
-  const [refillRequests, setRefillRequests] = useState<RefillRequestItem[]>((building.refillRequests ?? []) as RefillRequestItem[]);
+  // ── live contracts of this building (the sample lists are used only when no building is open) ──
+  const [liveAmc, setLiveAmc] = useState<any[] | null>(null);
+  const [visitFor, setVisitFor] = useState<any>(null);
+  // supply contracts of a real building go through the unit (UnitProfileDrawer), renewals through the API
+  const [contractUnit, setContractUnit] = useState<UnitDto | null>(null);
+  const [contractUnitAction, setContractUnitAction] = useState<{ action: any; nonce: number } | null>(null);
+  const [pickUnitOpen, setPickUnitOpen] = useState(false);
+  const [pickUnits, setPickUnits] = useState<UnitDto[]>([]);
+  const [pickUnitId, setPickUnitId] = useState<number | null>(null);
+  const [renewTarget, setRenewTarget] = useState<{ kind: 'supply' | 'amc'; c: any } | null>(null);
+  const [renewBusy, setRenewBusy] = useState(false);
+  const [renewForm] = Form.useForm();
+  const [docCount, setDocCount] = useState<number | null>(null);
+  const openUnitFor = async (unitId: number, action?: 'tenant') => {
+    try {
+      const u = await unitsApi.get(unitId);
+      setContractUnit(u);
+      setContractUnitAction(action ? { action, nonce: Date.now() } : null);
+    } catch (e) { message.error(errorMessage(e)); }
+  };
+  const newSupplyContract = () => {
+    if (!buildingId) { setAddContractOpen(true); return; }
+    setPickUnitId(null);
+    unitsApi.byBuilding(buildingId).then(r => setPickUnits(r.items)).catch(() => setPickUnits([]));
+    setPickUnitOpen(true);
+  };
+  const openRenew = (kind: 'supply' | 'amc', c: any) => {
+    if (!buildingId) { message.info('متاح عند فتح مبنى حقيقي'); return; }
+    renewForm.resetFields();
+    if (kind === 'supply') renewForm.setFieldsValue({ months: c.renewalPeriod ?? 12 });
+    else {
+      const start = c.endDate ? dayjs(c.endDate).add(1, 'day') : dayjs();
+      renewForm.setFieldsValue({ startDate: start, endDate: start.add(1, 'year').subtract(1, 'day'), annualValue: c.annualValue });
+    }
+    setRenewTarget({ kind, c });
+  };
+  const submitRenew = async () => {
+    if (!renewTarget) return;
+    const v = await renewForm.validateFields();
+    setRenewBusy(true);
+    try {
+      if (renewTarget.kind === 'supply') {
+        await api(`/supply-contracts/${renewTarget.c.id}/renew`, { method: 'POST', body: { months: v.months, newEndDate: v.newEndDate?.format('YYYY-MM-DD') ?? null } });
+        message.success('تم تجديد عقد التوريد');
+      } else {
+        const r = await api<any>(`/amc-contracts/${renewTarget.c.id}/renew`, { method: 'POST', body: {
+          startDate: v.startDate.format('YYYY-MM-DD'), endDate: v.endDate.format('YYYY-MM-DD'), annualValue: v.annualValue ?? null } });
+        message.success(`تم إنشاء عقد الصيانة المجدد ${r?.contractNo ?? ''}`);
+      }
+      setRenewTarget(null);
+      setLiveKey(k => k + 1);
+    } catch (e) { message.error(errorMessage(e), 6); } finally { setRenewBusy(false); }
+  };
+  const [reportFor, setReportFor] = useState<any>(null);
+  const [liveSupply, setLiveSupply] = useState<any[] | null>(null);
+  useEffect(() => {
+    if (!buildingId) return;
+    const VISIT_LABEL: Record<string, string> = { monthly: 'شهري', bimonthly: 'كل شهرين', quarterly: 'ربع سنوي', semi_annual: 'نصف سنوي', annual: 'سنوي' };
+    api<Paged<any>>('/amc-contracts', { query: { buildingId, pageSize: 0 } })
+      .then(r => setLiveAmc(r.items.map(c => ({
+        ...c, id: String(c.id), annualValue: Number(c.annualValue ?? 0), visitsTotal: Number(c.visitsTotal ?? 0), visitsDone: Number(c.visitsDone ?? 0),
+        visitFrequency: VISIT_LABEL[c.visitFrequency] ?? c.visitFrequency ?? '—', status: c.status === 'terminated' ? 'expired' : (c.status ?? 'active'),
+        lastVisitReport: c.lastVisitReport ?? '', notes: c.notes ?? '', scope: c.scope ?? [],
+      }))))
+      .catch(() => setLiveAmc([]));
+    api<Paged<any>>('/supply-contracts', { query: { buildingId, pageSize: 0 } })
+      .then(r => setLiveSupply(r.items.map(c => ({
+        ...c, id: String(c.id), status: c.isActive ? 'active' : c.status === 'draft' || c.status === 'pending' ? 'pending' : 'expired',
+        currency: 'د.إ', monthlyFee: Number(c.monthlyFee ?? 0), balanceAmount: Number(c.balanceAmount ?? 0), overdueAmount: Number(c.overdueAmount ?? 0),
+        depositAmount: Number(c.depositAmount ?? 0), balanceM3: Number(c.balanceM3 ?? 0), connectionFeePaid: false,
+      }))))
+      .catch(() => setLiveSupply([]));
+  }, [buildingId, liveKey]);
+  const amcList: any[] = buildingId ? (liveAmc ?? []) : amcContracts;
+  const supplyList: any[] = buildingId ? (liveSupply ?? []) : building.supplyContracts;
+  const [refillRequests, setRefillRequests] = useState<RefillRequestItem[]>(buildingId ? [] : (building.refillRequests ?? []) as RefillRequestItem[]);
+  // live operations data of the building: refill requests + tab counts
+  const [opsCounts, setOpsCounts] = useState<{ visits: number; service: number; coc: number } | null>(null);
+  useEffect(() => {
+    if (!buildingId) return;
+    api<Paged<any>>('/refill-requests', { query: { buildingId, pageSize: 0 } })
+      .then(r => setRefillRequests(r.items.map(mapLiveRefill)))
+      .catch(() => setRefillRequests([]));
+    const total = (path: string) => api<Paged<any>>(path, { query: { buildingId, pageSize: 1 } }).then(r => r.total).catch(() => 0);
+    Promise.all([total('/maintenance-visits'), total('/service-requests'), total('/cd-certificates')])
+      .then(([visits, service, coc]) => setOpsCounts({ visits, service, coc }));
+  }, [buildingId, liveKey]);
   const [refillDrawerOpen, setRefillDrawerOpen] = useState(false);
   const [selectedRefill, setSelectedRefill] = useState<RefillRequestItem | null>(null);
   const [newRefillOpen, setNewRefillOpen] = useState(false);
@@ -576,9 +726,9 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
 
   const header = (
     <Card bordered={false}
-      style={{ marginBottom: 16, background: `linear-gradient(135deg, ${PRIMARY} 0%, #2e7d32 100%)`, borderRadius: 12 }}
-      bodyStyle={{ padding: '20px 24px' }}>
-      <Row align="middle" gutter={[16, 12]}>
+      style={{ marginBottom: 12, background: `linear-gradient(135deg, ${PRIMARY} 0%, #2e7d32 100%)`, borderRadius: 12 }}
+      bodyStyle={{ padding: '12px 20px' }}>
+      <Row align="middle" gutter={[12, 8]}>
         <Col>
           <Button icon={<ArrowLeftOutlined />} onClick={onBack}
             style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#fff', borderRadius: 8 }}>
@@ -587,39 +737,46 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
         </Col>
         <Col flex="auto">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <Avatar size={52} icon={<BankOutlined />} style={{ background: 'rgba(255,255,255,0.2)', fontSize: 24, flexShrink: 0 }} />
+            <Avatar size={40} icon={<BankOutlined />} style={{ background: 'rgba(255,255,255,0.2)', fontSize: 18, flexShrink: 0 }} />
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                <Title level={4} style={{ margin: 0, color: '#fff' }}>{building.name}</Title>
-                <Tag color="success" style={{ borderRadius: 8, fontWeight: 600 }}>{building.statusLabel}</Tag>
-                <Tag style={{ borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff' }}>{building.typeLabel}</Tag>
+                <Title level={5} style={{ margin: 0, color: '#fff', fontSize: 17 }}>{hd.name}</Title>
+                {hd.statusLabel && <Tag color={live?.status === 'inactive' ? 'default' : 'success'} style={{ borderRadius: 8, fontWeight: 600 }}>{hd.statusLabel}</Tag>}
+                {hd.typeLabel && <Tag style={{ borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff' }}>{hd.typeLabel}</Tag>}
               </div>
-              <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13 }}>
-                {building.nameEn} · {building.no} · <EnvironmentOutlined style={{ marginInlineEnd: 4 }} />{building.address.city}، {building.branch}
+              <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12 }}>
+                {[hd.nameEn, hd.no].filter(Boolean).join(' · ')}
+                {(hd.city || hd.branch) && <> · <EnvironmentOutlined style={{ marginInlineEnd: 4 }} />{[hd.city, hd.branch].filter(Boolean).join('، ')}</>}
               </Text>
             </div>
           </div>
         </Col>
         <Col>
           <Space>
-            <Tooltip title="تعديل"><Button icon={<EditOutlined />} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#fff' }} /></Tooltip>
-            <Tooltip title="طباعة"><Button icon={<PrinterOutlined />} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#fff' }} /></Tooltip>
-            <Tooltip title="PDF"><Button icon={<FilePdfOutlined />} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#fff' }} /></Tooltip>
+            {canManageBuilding && <Tooltip title="تعديل بيانات المبنى"><Button icon={<EditOutlined />} onClick={() => setEditOpen(true)} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#fff' }} /></Tooltip>}
+            {canManageBuilding && (live?.status === 'inactive'
+              ? <Tooltip title="تفعيل المبنى"><Button icon={<PlayCircleOutlined />} onClick={() => setBuildingStatus('active')} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#b7eb8f' }} /></Tooltip>
+              : <Tooltip title="إيقاف المبنى (دون حذف)"><Button icon={<PauseCircleOutlined />} onClick={() => setBuildingStatus('inactive')} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#ffd591' }} /></Tooltip>)}
+            {canManageBuilding && <Tooltip title="حذف المبنى"><Button icon={<DeleteOutlined />} onClick={deleteBuilding} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#ffa39e' }} /></Tooltip>}
+            {buildingId && <HistoryButton entityType="Building" id={buildingId} title={`${hd.no} — ${hd.name}`} size="middle" label={null} type="default" />}
+            <Tooltip title="طباعة"><Button icon={<PrinterOutlined />} onClick={() => window.print()} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#fff' }} /></Tooltip>
+            <Tooltip title="حفظ PDF (اختر «حفظ كملف PDF» في نافذة الطباعة)"><Button icon={<FilePdfOutlined />} onClick={() => { const t = document.title; document.title = `${hd.no} - ${hd.name}`; window.print(); setTimeout(() => { document.title = t; }, 500); }} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#fff' }} /></Tooltip>
           </Space>
         </Col>
       </Row>
-      <Row style={{ marginTop: 16, background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '12px 20px' }}>
+      <Row style={{ marginTop: 10, background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '6px 16px' }}>
         {[
-          { label: 'الطوابق', value: building.floors, icon: <ApartmentOutlined /> },
-          { label: 'إجمالي الوحدات', value: building.totalUnits, icon: <HomeOutlined /> },
-          { label: 'مشغول', value: building.occupied, icon: <CheckCircleOutlined /> },
-          { label: 'شاغر', value: building.vacant, icon: <ExclamationCircleOutlined /> },
-          { label: 'الخزانات', value: building.tanks.length, icon: <DatabaseOutlined /> },
-          { label: 'الملاك', value: building.owners.length, icon: <TeamOutlined /> },
+          { label: 'الطوابق', value: hd.floors, icon: <ApartmentOutlined /> },
+          { label: 'إجمالي الوحدات', value: hd.totalUnits, icon: <HomeOutlined /> },
+          { label: 'مشغول', value: hd.occupied, icon: <CheckCircleOutlined /> },
+          { label: 'شاغر', value: hd.vacant, icon: <ExclamationCircleOutlined /> },
+          { label: 'الخزانات', value: hd.tanks, icon: <DatabaseOutlined /> },
+          { label: 'الملاك', value: hd.owners, icon: <TeamOutlined /> },
         ].map((k, i) => (
-          <Col key={i} flex="1" style={{ textAlign: 'center', borderRight: i < 5 ? '1px solid rgba(255,255,255,0.15)' : undefined, padding: '4px 8px' }}>
-            <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11, marginBottom: 2 }}>{k.icon} {k.label}</div>
-            <div style={{ color: '#fff', fontSize: 20, fontWeight: 700 }}>{k.value}</div>
+          <Col key={i} flex="1" style={{ textAlign: 'center', borderRight: i < 5 ? '1px solid rgba(255,255,255,0.15)' : undefined, padding: '2px 8px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11 }}>{k.icon} {k.label}</span>
+            <span style={{ color: '#fff', fontSize: 17, fontWeight: 700 }}>{k.value}</span>
           </Col>
         ))}
       </Row>
@@ -709,22 +866,40 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
     </Row>
   );
 
+  // معلومات المبنى: live building (GET /buildings/{id}) when opened from the list, otherwise the sample
+  const lv: any = live;
+  const info = lv ? {
+    no: lv.code, name: lv.nameAr ?? lv.name ?? '—', nameEn: lv.nameEn ?? '—', branch: lv.branch ?? '—', typeLabel: lv.typeLabel ?? '—',
+    floors: lv.totalFloors ?? '—', totalUnits: lv.stats?.units ?? 0, statusLabel: lv.statusLabel ?? (lv.isActive ? 'نشط' : 'غير نشط'),
+    statusColor: lv.status === 'active' || (lv.isActive && !lv.status) ? 'success' : 'default',
+    createdAt: lv.createdAt ? String(lv.createdAt).slice(0, 10) : '—', lastUpdated: lv.updatedAt ? String(lv.updatedAt).slice(0, 10) : '—',
+    emirate: lv.emirate ?? '—', city: lv.city ?? '—', zone: lv.zone ?? '—', street: lv.street ?? '—', poBox: lv.poBox ?? '—',
+    fullAddress: lv.address || [lv.street, lv.zone, lv.city, lv.emirate].filter(Boolean).join('، ') || '—',
+    lat: lv.latitude as number | null, lng: lv.longitude as number | null,
+  } : {
+    no: building.no, name: building.name, nameEn: building.nameEn, branch: building.branch, typeLabel: building.typeLabel,
+    floors: building.floors, totalUnits: building.totalUnits, statusLabel: building.statusLabel, statusColor: 'success',
+    createdAt: building.createdAt, lastUpdated: building.lastUpdated,
+    emirate: building.address.emirate, city: building.address.city, zone: building.address.zone, street: building.address.street, poBox: building.address.poBox,
+    fullAddress: building.address.fullAddress, lat: null as number | null, lng: null as number | null,
+  };
+  const coords = info.lat != null && info.lng != null ? `${Number(info.lat).toFixed(4)}° N, ${Number(info.lng).toFixed(4)}° E` : (lv ? '—' : building.address.coordinates);
   const infoTab = (
     <Row gutter={[16, 16]}>
       <Col xs={24} md={12}>
         <Card size="small" bordered={false} style={{ borderRadius: 10, height: '100%' }}
           title={<Text strong><BankOutlined style={{ marginInlineEnd: 6, color: PRIMARY }} />معلومات المبنى الأساسية</Text>}>
           <Descriptions column={1} size="small" bordered labelStyle={{ background: '#fafafa', width: 155, fontSize: 13 }} contentStyle={{ fontSize: 13 }}>
-            <Descriptions.Item label="رقم المبنى">{building.no}</Descriptions.Item>
-            <Descriptions.Item label="اسم المبنى (عربي)">{building.name}</Descriptions.Item>
-            <Descriptions.Item label="اسم المبنى (إنجليزي)">{building.nameEn}</Descriptions.Item>
-            <Descriptions.Item label="الفرع">{building.branch}</Descriptions.Item>
-            <Descriptions.Item label="النوع">{building.typeLabel}</Descriptions.Item>
-            <Descriptions.Item label="عدد الطوابق">{building.floors}</Descriptions.Item>
-            <Descriptions.Item label="إجمالي الوحدات">{building.totalUnits}</Descriptions.Item>
-            <Descriptions.Item label="الحالة"><Tag color="success">{building.statusLabel}</Tag></Descriptions.Item>
-            <Descriptions.Item label="تاريخ الإضافة">{building.createdAt}</Descriptions.Item>
-            <Descriptions.Item label="آخر تحديث">{building.lastUpdated}</Descriptions.Item>
+            <Descriptions.Item label="رقم المبنى">{info.no}</Descriptions.Item>
+            <Descriptions.Item label="اسم المبنى (عربي)">{info.name}</Descriptions.Item>
+            <Descriptions.Item label="اسم المبنى (إنجليزي)">{info.nameEn}</Descriptions.Item>
+            <Descriptions.Item label="الفرع">{info.branch}</Descriptions.Item>
+            <Descriptions.Item label="النوع">{info.typeLabel}</Descriptions.Item>
+            <Descriptions.Item label="عدد الطوابق">{info.floors}</Descriptions.Item>
+            <Descriptions.Item label="إجمالي الوحدات">{info.totalUnits}</Descriptions.Item>
+            <Descriptions.Item label="الحالة"><Tag color={info.statusColor}>{info.statusLabel}</Tag></Descriptions.Item>
+            <Descriptions.Item label="تاريخ الإضافة">{info.createdAt}</Descriptions.Item>
+            <Descriptions.Item label="آخر تحديث">{info.lastUpdated}</Descriptions.Item>
           </Descriptions>
         </Card>
       </Col>
@@ -732,20 +907,27 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
         <Card size="small" bordered={false} style={{ borderRadius: 10 }}
           title={<Text strong><EnvironmentOutlined style={{ marginInlineEnd: 6, color: PRIMARY }} />العنوان والموقع</Text>}>
           <Descriptions column={1} size="small" bordered labelStyle={{ background: '#fafafa', width: 155, fontSize: 13 }} contentStyle={{ fontSize: 13 }}>
-            <Descriptions.Item label="الإمارة">{building.address.emirate}</Descriptions.Item>
-            <Descriptions.Item label="المدينة / المنطقة">{building.address.city}</Descriptions.Item>
-            <Descriptions.Item label="الحي / المنطقة">{building.address.zone}</Descriptions.Item>
-            <Descriptions.Item label="الشارع">{building.address.street}</Descriptions.Item>
-            <Descriptions.Item label="صندوق البريد">{building.address.poBox}</Descriptions.Item>
-            <Descriptions.Item label="العنوان الكامل"><Paragraph style={{ margin: 0, fontSize: 13 }}>{building.address.fullAddress}</Paragraph></Descriptions.Item>
-            <Descriptions.Item label="الإحداثيات"><Text style={{ fontFamily: 'monospace', fontSize: 12, direction: 'ltr', display: 'inline-block' }}>{building.address.coordinates}</Text></Descriptions.Item>
+            <Descriptions.Item label="الإمارة">{info.emirate}</Descriptions.Item>
+            <Descriptions.Item label="المدينة / المنطقة">{info.city}</Descriptions.Item>
+            <Descriptions.Item label="الحي / المنطقة">{info.zone}</Descriptions.Item>
+            <Descriptions.Item label="الشارع">{info.street}</Descriptions.Item>
+            <Descriptions.Item label="صندوق البريد">{info.poBox}</Descriptions.Item>
+            <Descriptions.Item label="العنوان الكامل"><Paragraph style={{ margin: 0, fontSize: 13 }}>{info.fullAddress}</Paragraph></Descriptions.Item>
+            <Descriptions.Item label="الإحداثيات"><Text style={{ fontFamily: 'monospace', fontSize: 12, direction: 'ltr', display: 'inline-block' }}>{coords}</Text></Descriptions.Item>
           </Descriptions>
-          <div style={{ marginTop: 12, borderRadius: 8, background: '#f5f5f5', height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #eee' }}>
-            <div style={{ textAlign: 'center', color: '#bbb' }}>
-              <GlobalOutlined style={{ fontSize: 32, marginBottom: 8 }} />
-              <div style={{ fontSize: 12 }}>خريطة الموقع<br /><Text type="secondary" style={{ fontSize: 11 }}>سيتم دمج Google Maps</Text></div>
+          {info.lat != null && info.lng != null ? (
+            <div style={{ marginTop: 12, borderRadius: 8, overflow: 'hidden', border: '1px solid #eee' }}>
+              <iframe title="map" width="100%" height="220" style={{ border: 0, display: 'block' }} loading="lazy"
+                src={`https://maps.google.com/maps?q=${info.lat},${info.lng}&z=16&output=embed`} />
             </div>
-          </div>
+          ) : (
+            <div style={{ marginTop: 12, borderRadius: 8, background: '#f5f5f5', height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #eee' }}>
+              <div style={{ textAlign: 'center', color: '#bbb' }}>
+                <GlobalOutlined style={{ fontSize: 32, marginBottom: 8 }} />
+                <div style={{ fontSize: 12 }}>خريطة الموقع<br /><Text type="secondary" style={{ fontSize: 11 }}>{lv ? 'أضف الإحداثيات من «تعديل المبنى» لعرض الخريطة' : 'سيتم دمج Google Maps'}</Text></div>
+              </div>
+            </div>
+          )}
         </Card>
       </Col>
     </Row>
@@ -918,11 +1100,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
 
   // ── Financials Tab — two sections: AMC invoices + Gas Supply invoices ─
   const amcInvoices = building.invoices.filter((inv: any) => inv.type === 'amc');
-  const gasInvoices = building.invoices.filter((inv: any) => inv.type === 'gas');
   const amcTotal   = amcInvoices.reduce((s: number, i: any) => s + i.amount, 0);
-  const gasTotal   = gasInvoices.reduce((s: number, i: any) => s + i.amount, 0);
-  const gasPaid    = gasInvoices.filter((i: any) => i.status === 'paid').reduce((s: number, i: any) => s + i.amount, 0);
-  const gasOverdue = gasInvoices.filter((i: any) => i.status === 'overdue').reduce((s: number, i: any) => s + i.amount, 0);
 
   // Supply invoices derived from supplyContracts
   const supplyInvoices = building.supplyContracts.map((c: any, idx: number) => ({
@@ -1133,9 +1311,9 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           <Text strong style={{ color: contractTab === 'amc' ? PRIMARY : '#666', display: 'block' }}>عقد الصيانة السنوي</Text>
           <Text type="secondary" style={{ fontSize: 11 }}>AMC Gas Contract — صيانة مواسير الغاز وفحص السلامة</Text>
           <div style={{ marginTop: 8 }}>
-            {building.amcContracts.filter((c: any) => c.status === 'active').length > 0
+            {amcList.filter((c: any) => c.status === 'active').length > 0
               ? <Tag color="success">نشط</Tag> : <Tag color="error">منتهي</Tag>}
-            <Tag color="default">{building.amcContracts.length} عقود</Tag>
+            <Tag color="default">{amcList.length} عقود</Tag>
           </div>
         </div>
         <div
@@ -1150,8 +1328,8 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           <Text strong style={{ color: contractTab === 'supply' ? '#fa8c16' : '#666', display: 'block' }}>عقود توريد الغاز</Text>
           <Text type="secondary" style={{ fontSize: 11 }}>Gas Supply Contract — رسوم شهرية ومتابعة العدادات</Text>
           <div style={{ marginTop: 8 }}>
-            <Tag color="success">{building.supplyContracts.filter((c: any) => c.status === 'active').length} نشط</Tag>
-            <Tag color="error">{building.supplyContracts.filter((c: any) => c.status === 'expired').length} منتهي</Tag>
+            <Tag color="success">{supplyList.filter((c: any) => c.status === 'active').length} نشط</Tag>
+            <Tag color="error">{supplyList.filter((c: any) => c.status === 'expired').length} منتهي</Tag>
           </div>
         </div>
       </div>
@@ -1166,11 +1344,14 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
             <Button type="primary" icon={<PlusOutlined />} style={{ borderRadius: 8 }} onClick={() => setAmcModalOpen(true)}>عقد AMC جديد</Button>
           </div>
 
-          {[...amcContracts].reverse().map((c: any) => {
+          {buildingId && liveAmc !== null && amcList.length === 0 && (
+            <Empty style={{ padding: '24px 0' }} description="لا توجد عقود صيانة سنوية لهذا المبنى — أنشئ عقداً جديداً" />
+          )}
+          {(buildingId ? amcList : [...amcList].reverse()).map((c: any) => {
             const isExpired = c.status === 'expired';
             const daysLeft = c.endDate ? Math.ceil((new Date(c.endDate).getTime() - Date.now()) / 86400000) : null;
             const expiringSoon = daysLeft !== null && daysLeft > 0 && daysLeft <= 60;
-            const visitPct = Math.round((c.visitsDone / c.visitsTotal) * 100);
+            const visitPct = c.visitsTotal ? Math.round((c.visitsDone / c.visitsTotal) * 100) : 0;
             return (
               <Card key={c.id} bordered={false} style={{
                 borderRadius: 12, marginBottom: 16,
@@ -1233,33 +1414,52 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
                   {/* CTA */}
                   <Col xs={24} md={6}>
                     <Card size="small" bordered={false} style={{ borderRadius: 8, background: '#fff', height: '100%' }}>
+                      <Text strong style={{ fontSize: 12, color: '#555', display: 'block', marginBottom: 4 }}>
+                        <UserOutlined style={{ color: PRIMARY, marginInlineEnd: 4 }} />العميل (المالك)
+                      </Text>
                       <Descriptions column={1} size="small" labelStyle={{ fontSize: 11, color: '#888' }} contentStyle={{ fontSize: 11 }}>
-                        <Descriptions.Item label="جهة الاتصال">{c.vendorContact}</Descriptions.Item>
-                        <Descriptions.Item label="البريد">{c.vendorEmail}</Descriptions.Item>
+                        <Descriptions.Item label="الاسم">{c.ownerName || building.owners?.[0]?.name || '—'}</Descriptions.Item>
+                        <Descriptions.Item label="الهاتف">{c.ownerPhone || building.owners?.[0]?.defaultPhone || '—'}</Descriptions.Item>
+                        <Descriptions.Item label="البريد">{c.ownerEmail || '—'}</Descriptions.Item>
                       </Descriptions>
+                      {(c.vendorContact || c.vendorEmail) && (
+                        <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+                          مقدم الخدمة: {c.vendor}{c.vendorContact ? ` · ${c.vendorContact}` : ''}{c.vendorEmail ? ` · ${c.vendorEmail}` : ''}
+                        </div>
+                      )}
                       <Divider style={{ margin: '8px 0' }} />
                       {isExpired ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                           <Text type="secondary" style={{ fontSize: 11 }}>
                             <ExclamationCircleOutlined style={{ color: '#ff4d4f', marginInlineEnd: 4 }} />انتهى العقد — اختر:
                           </Text>
-                          <Button type="primary" icon={<PlusOutlined />} size="small" block style={{ borderRadius: 6, fontSize: 11 }}>إنشاء عقد جديد</Button>
-                          <Button icon={<EditOutlined />} size="small" block style={{ borderRadius: 6, fontSize: 11, borderColor: PRIMARY, color: PRIMARY }}>تجديد العقد</Button>
+                          <Button type="primary" icon={<PlusOutlined />} size="small" block style={{ borderRadius: 6, fontSize: 11 }} onClick={() => setAmcModalOpen(true)}>إنشاء عقد جديد</Button>
+                          <Button icon={<EditOutlined />} size="small" block style={{ borderRadius: 6, fontSize: 11, borderColor: PRIMARY, color: PRIMARY }} onClick={() => openRenew('amc', c)}>تجديد العقد</Button>
                         </div>
                       ) : expiringSoon ? (
-                        <Button icon={<BellOutlined />} size="small" block style={{ borderRadius: 6, fontSize: 11, borderColor: '#fa8c16', color: '#fa8c16' }}>تجديد مبكر</Button>
+                        <Button icon={<BellOutlined />} size="small" block style={{ borderRadius: 6, fontSize: 11, borderColor: '#fa8c16', color: '#fa8c16' }} onClick={() => openRenew('amc', c)}>تجديد مبكر</Button>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                          <Button size="small" block style={{ borderRadius: 6, fontSize: 11 }}>تسجيل زيارة</Button>
-                          <Button size="small" block style={{ borderRadius: 6, fontSize: 11 }}>رفع تقرير</Button>
+                          <Button size="small" block style={{ borderRadius: 6, fontSize: 11 }} disabled={!buildingId} onClick={() => setVisitFor(c)}>تسجيل زيارة</Button>
+                          <Button size="small" block style={{ borderRadius: 6, fontSize: 11 }} disabled={!buildingId} onClick={() => setReportFor(c)}>رفع تقرير</Button>
                         </div>
                       )}
                     </Card>
                   </Col>
                 </Row>
+                {buildingId && (
+                  <div style={{ marginTop: 14, background: '#fff', borderRadius: 10, padding: 12, border: '1px solid #f0f0f0' }}>
+                    <Text strong style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>
+                      <FileTextOutlined style={{ color: PRIMARY, marginInlineEnd: 6 }} />فواتير العقد والأقساط
+                    </Text>
+                    <AmcInvoicesPanel contractId={c.id} schedule={c.paymentSchedule ?? []} onChanged={() => setLiveKey(k => k + 1)} />
+                  </div>
+                )}
               </Card>
             );
           })}
+          <RecordVisitModal open={!!visitFor} contract={visitFor} onClose={() => setVisitFor(null)} onDone={() => setLiveKey(k => k + 1)} />
+          <UploadReportModal open={!!reportFor} contract={reportFor} onClose={() => setReportFor(null)} onDone={() => setLiveKey(k => k + 1)} />
         </div>
       )}
 
@@ -1269,12 +1469,12 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           {/* Summary */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
             {[
-              { label: 'إجمالي العقود', value: building.supplyContracts.length, color: '#fa8c16', bg: '#fff7e6' },
-              { label: 'نشطة', value: building.supplyContracts.filter((c: any) => c.status === 'active').length, color: '#52c41a', bg: '#f6ffed' },
-              { label: 'منتهية', value: building.supplyContracts.filter((c: any) => c.status === 'expired').length, color: '#ff4d4f', bg: '#fff1f0' },
-              { label: 'متأخرة', value: building.supplyContracts.filter((c: any) => c.paymentStatus === 'overdue').length, color: '#ff4d4f', bg: '#fff1f0' },
-              { label: 'إجمالي الودائع', value: `${building.supplyContracts.reduce((s: number, c: any) => s + (c.depositPaid ? c.depositAmount : 0), 0).toLocaleString()} د.إ`, color: '#1677ff', bg: '#e6f4ff' },
-              { label: 'الرصيد الكلي', value: `${building.supplyContracts.reduce((s: number, c: any) => s + c.balanceAmount, 0).toLocaleString()} د.إ`, color: PRIMARY, bg: '#e8f5e9' },
+              { label: 'إجمالي العقود', value: supplyList.length, color: '#fa8c16', bg: '#fff7e6' },
+              { label: 'نشطة', value: supplyList.filter((c: any) => c.status === 'active').length, color: '#52c41a', bg: '#f6ffed' },
+              { label: 'منتهية', value: supplyList.filter((c: any) => c.status === 'expired').length, color: '#ff4d4f', bg: '#fff1f0' },
+              { label: 'متأخرة', value: supplyList.filter((c: any) => c.paymentStatus === 'overdue').length, color: '#ff4d4f', bg: '#fff1f0' },
+              { label: 'إجمالي الودائع', value: `${supplyList.reduce((s: number, c: any) => s + (c.depositPaid ? c.depositAmount : 0), 0).toLocaleString()} د.إ`, color: '#1677ff', bg: '#e6f4ff' },
+              { label: 'الرصيد الكلي', value: `${supplyList.reduce((s: number, c: any) => s + c.balanceAmount, 0).toLocaleString()} د.إ`, color: PRIMARY, bg: '#e8f5e9' },
             ].map((s, i) => (
               <Card key={i} size="small" bordered={false} style={{ borderRadius: 10, background: s.bg, minWidth: 100, textAlign: 'center', flex: '1 1 90px' }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: s.color }}>{s.value}</div>
@@ -1282,14 +1482,14 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
               </Card>
             ))}
             <div style={{ display: 'flex', alignItems: 'center' }}>
-              <Button type="primary" icon={<PlusOutlined />} style={{ borderRadius: 8, background: '#fa8c16', borderColor: '#fa8c16' }} onClick={() => setAddContractOpen(true)}>عقد توريد جديد</Button>
+              <Button type="primary" icon={<PlusOutlined />} style={{ borderRadius: 8, background: '#fa8c16', borderColor: '#fa8c16' }} onClick={newSupplyContract}>عقد توريد جديد</Button>
             </div>
           </div>
 
           {/* Table of supply contracts */}
           <Table
             size="small"
-            dataSource={building.supplyContracts}
+            dataSource={supplyList}
             rowKey="id"
             pagination={{ pageSize: 10, size: 'small' }}
             expandable={{
@@ -1339,8 +1539,9 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
                       </Descriptions>
                       {c.status === 'expired' && (
                         <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
-                          <Button size="small" type="primary" icon={<PlusOutlined />} style={{ fontSize: 11, borderRadius: 6, background: '#fa8c16', borderColor: '#fa8c16' }}>عقد جديد</Button>
-                          <Button size="small" icon={<EditOutlined />} style={{ fontSize: 11, borderRadius: 6 }}>تجديد</Button>
+                          <Button size="small" type="primary" icon={<PlusOutlined />} style={{ fontSize: 11, borderRadius: 6, background: '#fa8c16', borderColor: '#fa8c16' }}
+                            onClick={() => buildingId && c.unitId ? openUnitFor(c.unitId, 'tenant') : setAddContractOpen(true)}>عقد جديد</Button>
+                          <Button size="small" icon={<EditOutlined />} style={{ fontSize: 11, borderRadius: 6 }} onClick={() => openRenew('supply', c)}>تجديد</Button>
                         </div>
                       )}
                     </Col>
@@ -1364,10 +1565,11 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
               { title: '', width: 80, render: (_: any, r: any) => (
                 r.status === 'expired'
                   ? <Space size={4}>
-                      <Button size="small" type="link" style={{ padding: 0, fontSize: 11 }} icon={<PlusOutlined />}>جديد</Button>
-                      <Button size="small" type="link" style={{ padding: 0, fontSize: 11, color: '#fa8c16' }} icon={<EditOutlined />}>تجديد</Button>
+                      <Button size="small" type="link" style={{ padding: 0, fontSize: 11 }} icon={<PlusOutlined />}
+                        onClick={() => buildingId && r.unitId ? openUnitFor(r.unitId, 'tenant') : setAddContractOpen(true)}>جديد</Button>
+                      <Button size="small" type="link" style={{ padding: 0, fontSize: 11, color: '#fa8c16' }} icon={<EditOutlined />} onClick={() => openRenew('supply', r)}>تجديد</Button>
                     </Space>
-                  : <Button size="small" type="link" style={{ padding: 0, fontSize: 11 }} onClick={() => { setSelectedContract(r as SupplyContractRecord); setContractDrawerOpen(true); }}>تفاصيل</Button>
+                  : <Button size="small" type="link" style={{ padding: 0, fontSize: 11 }} onClick={() => { if (buildingId && r.unitId) openUnitFor(r.unitId); else { setSelectedContract(r as SupplyContractRecord); setContractDrawerOpen(true); } }}>تفاصيل</Button>
               )},
             ]}
           />
@@ -2185,6 +2387,39 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
   // ── Civil Defense CoC Tab ─────────────────────────────────────────
   const [renewalModalOpen, setRenewalModalOpen] = React.useState(false);
   const [selectedCoc, setSelectedCoc] = React.useState<any>(null);
+  const [cocMode, setCocMode] = React.useState<'add' | 'renew'>('renew');
+  // live civil defence certificates (GET /cd-certificates?buildingId) in the shape this tab uses
+  const [cdLive, setCdLive] = React.useState<any[] | null>(null);
+  const [cdInspector, setCdInspector] = React.useState<{ name?: string; phone?: string; dept?: string } | null>(null);
+  useEffect(() => {
+    if (!buildingId) return;
+    api<Paged<any>>('/cd-certificates', { query: { buildingId, pageSize: 0 } })
+      .then(async r => {
+        const rows = r.items.map((c: any) => {
+          const inRenewal = c.renewal?.status === 'in_progress';
+          return {
+            id: c.certificateNo || (c.status === 'pending' ? `طلب جديد #${c.id}` : `CD-${c.id}`), dbId: c.id, type: c.certTypeLabel ?? c.certType, licenseNo: c.licenseNo ?? '', issuedBy: c.issuedBy ?? '—',
+            issueDate: c.issueDate ?? '', expiryDate: c.expiryDate ?? '', scope: c.scope ?? '—', inspector: c.inspectorName ?? '', inspectionDate: c.inspectionDate ?? '',
+            notes: c.notes ?? '', documents: [] as string[],
+            status: inRenewal ? 'renewal_in_progress' : c.status === 'valid' ? ((c.daysToExpiry ?? 1) < 0 ? 'expired' : 'active') : c.status,
+            renewalStep: inRenewal ? c.renewal.currentStep ?? 1 : 0, renewalId: inRenewal ? c.renewal.id : null,
+          };
+        });
+        setCdLive(rows);
+        const cur = rows.find(x => x.renewalId) ?? rows.find(x => x.status === 'active');
+        let insp: { name?: string; phone?: string; dept?: string } = { name: cur?.inspector || undefined };
+        if (cur?.renewalId) {
+          try {
+            const d = await api<any>(`/cd-certificates/${cur.dbId}`);
+            const rn = (d.renewals ?? []).map((x: any) => x.renewal).find((x: any) => x.id === cur.renewalId);
+            if (rn) insp = { name: rn.inspectorName ?? insp.name, phone: rn.inspectorPhone, dept: rn.inspectorDept };
+          } catch { /* keep the certificate inspector */ }
+        }
+        setCdInspector(insp);
+      })
+      .catch(() => setCdLive([]));
+  }, [buildingId, liveKey]);
+  const cdCerts: any[] = buildingId ? (cdLive ?? []) : building.civilDefense.certificates;
 
   const cocStatusMap: Record<string, { color: string; label: string; bg: string; icon: React.ReactNode }> = {
     active:              { color: '#52c41a', label: 'سارية',            bg: '#f6ffed', icon: <CheckCircleOutlined style={{ color: '#52c41a' }} /> },
@@ -2202,9 +2437,9 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
     { title: 'إصدار الشهادة',      description: 'استلام شهادة المطابقة الجديدة من الدفاع المدني', icon: <FileDoneOutlined /> },
   ];
 
-  const activeCoc    = building.civilDefense.certificates.find((c: any) => c.status === 'active');
-  const inProgressCoc = building.civilDefense.certificates.find((c: any) => c.status === 'renewal_in_progress');
-  const allCocs      = [...building.civilDefense.certificates].sort((a: any, b: any) => (b.issueDate || '9999').localeCompare(a.issueDate || '9999'));
+  const activeCoc    = cdCerts.find((c: any) => c.status === 'active');
+  const inProgressCoc = cdCerts.find((c: any) => c.status === 'renewal_in_progress');
+  const allCocs      = [...cdCerts].sort((a: any, b: any) => (b.issueDate || '9999').localeCompare(a.issueDate || '9999'));
 
   // Days until expiry
   const daysUntilExpiry = (dateStr: string) => {
@@ -2212,6 +2447,14 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
     return Math.ceil(diff / 86400000);
   };
   const activeDays = activeCoc ? daysUntilExpiry(activeCoc.expiryDate) : null;
+  const lastInspectionDate = cdCerts.map((c: any) => c.inspectionDate).filter(Boolean).sort().at(-1);
+  const renewalBase = activeCoc ?? inProgressCoc;
+  const cd = buildingId ? {
+    lastInspection: lastInspectionDate || '—',
+    nextRenewalDue: renewalBase?.expiryDate ? new Date(new Date(renewalBase.expiryDate).getTime() - 90 * 86400000).toISOString().slice(0, 10) : '—',
+    inspector: cdInspector?.name || 'لم يحدد المفتش بعد', inspectorDept: cdInspector?.dept || 'الدفاع المدني', inspectorPhone: cdInspector?.phone || '—',
+  } : building.civilDefense;
+  const openCoc = (c: any, mode: 'add' | 'renew' = 'renew') => { setCocMode(mode); setSelectedCoc(c); setRenewalModalOpen(true); };
 
   const civilDefenseTab = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
@@ -2268,7 +2511,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
                 </Text>
                 <Button size="small" type="primary" danger={activeDays < 30}
                   icon={<AuditOutlined />}
-                  onClick={() => { setSelectedCoc(activeCoc); setRenewalModalOpen(true); }}>
+                  onClick={() => openCoc(activeCoc)}>
                   بدء التجديد
                 </Button>
               </Space>
@@ -2289,7 +2532,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           }
           extra={
             <Button size="small" icon={<EditOutlined />}
-              onClick={() => { setSelectedCoc(inProgressCoc); setRenewalModalOpen(true); }}>
+              onClick={() => openCoc(inProgressCoc)}>
               تحديث الحالة
             </Button>
           }
@@ -2312,15 +2555,28 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
         </Card>
       )}
 
+      {buildingId && cdLive !== null && cdCerts.length === 0 && (
+        <Card bordered={false} style={{ borderRadius: 12, border: '1.5px dashed #ff4d4f', background: '#fff8f8' }}>
+          <Space align="center" size={16} wrap>
+            <SafetyCertificateOutlined style={{ fontSize: 36, color: '#ff4d4f' }} />
+            <div>
+              <Text strong style={{ fontSize: 14, display: 'block' }}>لا توجد شهادة دفاع مدني مسجلة لهذا المبنى</Text>
+              <Text type="secondary" style={{ fontSize: 12 }}>سجّل الشهادة الحالية لمتابعة تاريخ انتهائها وتنبيهات التجديد</Text>
+            </div>
+            <Button type="primary" icon={<AuditOutlined />} onClick={() => openCoc(null, 'add')}>طلب شهادة جديدة</Button>
+          </Space>
+        </Card>
+      )}
+
       {/* ── Summary Stats ── */}
       <Row gutter={[12, 12]}>
         {[
-          { label: 'إجمالي الشهادات', value: building.civilDefense.certificates.length, color: PRIMARY, bg: '#e8f5e9', icon: <AuditOutlined /> },
-          { label: 'سارية حالياً',    value: building.civilDefense.certificates.filter((c: any) => c.status === 'active').length, color: '#52c41a', bg: '#f6ffed', icon: <CheckCircleOutlined /> },
-          { label: 'قيد التجديد',     value: building.civilDefense.certificates.filter((c: any) => c.status === 'renewal_in_progress').length, color: '#1677ff', bg: '#e6f4ff', icon: <ClockCircleOutlined /> },
-          { label: 'منتهية الصلاحية', value: building.civilDefense.certificates.filter((c: any) => c.status === 'expired').length, color: '#ff4d4f', bg: '#fff1f0', icon: <ExclamationCircleOutlined /> },
-          { label: 'آخر فحص',         value: building.civilDefense.lastInspection, color: '#888', bg: '#fafafa', icon: <CalendarOutlined />, text: true },
-          { label: 'موعد التجديد',    value: building.civilDefense.nextRenewalDue, color: '#fa8c16', bg: '#fff7e6', icon: <CalendarOutlined />, text: true },
+          { label: 'إجمالي الشهادات', value: cdCerts.length, color: PRIMARY, bg: '#e8f5e9', icon: <AuditOutlined /> },
+          { label: 'سارية حالياً',    value: cdCerts.filter((c: any) => c.status === 'active').length, color: '#52c41a', bg: '#f6ffed', icon: <CheckCircleOutlined /> },
+          { label: 'قيد التجديد',     value: cdCerts.filter((c: any) => c.status === 'renewal_in_progress').length, color: '#1677ff', bg: '#e6f4ff', icon: <ClockCircleOutlined /> },
+          { label: 'منتهية الصلاحية', value: cdCerts.filter((c: any) => c.status === 'expired').length, color: '#ff4d4f', bg: '#fff1f0', icon: <ExclamationCircleOutlined /> },
+          { label: 'آخر فحص',         value: cd.lastInspection, color: '#888', bg: '#fafafa', icon: <CalendarOutlined />, text: true },
+          { label: 'موعد التجديد',    value: cd.nextRenewalDue, color: '#fa8c16', bg: '#fff7e6', icon: <CalendarOutlined />, text: true },
         ].map((s: any, i) => (
           <Col xs={12} sm={8} md={4} key={i}>
             <Card size="small" bordered={false} style={{ borderRadius: 10, background: s.bg }}>
@@ -2341,8 +2597,9 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
         title={<Text strong><FileDoneOutlined style={{ marginInlineEnd: 6, color: PRIMARY }} />سجل شهادات الدفاع المدني</Text>}
         extra={
           <Space>
+            <Button size="small" icon={<PlusOutlined />} onClick={() => openCoc(null, 'add')}>شهادة جديدة</Button>
             <Button size="small" type="primary" ghost icon={<AuditOutlined />}
-              onClick={() => { setSelectedCoc(null); setRenewalModalOpen(true); }}>
+              onClick={() => inProgressCoc ? openCoc(inProgressCoc) : (activeCoc ?? allCocs[0]) ? openCoc(activeCoc ?? allCocs[0]) : openCoc(null, 'add')}>
               بدء تجديد / طلب جديد
             </Button>
           </Space>
@@ -2351,7 +2608,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
         <Table size="small" rowKey="id" pagination={false}
           dataSource={allCocs}
           expandable={{
-            expandedRowRender: (r: any) => (
+            expandedRowRender: (r: any) => buildingId && r.dbId ? <CocCertificateDetails key={`${r.dbId}-${liveKey}`} dbId={r.dbId} /> : (
               <div style={{ padding: '8px 16px', background: '#fafafa', borderRadius: 8 }}>
                 <Row gutter={[16, 8]}>
                   <Col xs={24} md={12}>
@@ -2376,7 +2633,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
                         ))
                         : <Text type="secondary" style={{ fontSize: 11 }}>لا توجد وثائق مرفقة</Text>
                       }
-                      <Button size="small" icon={<PlusOutlined />} style={{ fontSize: 11 }}>إرفاق وثيقة</Button>
+                      {!buildingId && <Button size="small" icon={<PlusOutlined />} style={{ fontSize: 11 }}>إرفاق وثيقة</Button>}
                     </Space>
                   </Col>
                 </Row>
@@ -2417,7 +2674,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
             )},
             { title: '', render: (_: any, r: any) => (
               <Button size="small" type="link" style={{ padding: 0, fontSize: 11 }}
-                onClick={() => { setSelectedCoc(r); setRenewalModalOpen(true); }}>
+                onClick={() => openCoc(r)}>
                 {r.status === 'renewal_in_progress' ? 'تحديث التجديد' : r.status === 'active' ? 'بدء التجديد' : 'عرض'}
               </Button>
             )},
@@ -2431,69 +2688,22 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
             <Avatar icon={<UserOutlined />} style={{ background: '#1677ff' }} />
           </Col>
           <Col flex="1">
-            <Text strong style={{ fontSize: 13, display: 'block' }}>{building.civilDefense.inspector}</Text>
-            <Text type="secondary" style={{ fontSize: 11 }}>{building.civilDefense.inspectorDept}</Text>
+            <Text strong style={{ fontSize: 13, display: 'block' }}>{cd.inspector}</Text>
+            <Text type="secondary" style={{ fontSize: 11 }}>{cd.inspectorDept}</Text>
           </Col>
           <Col>
             <Space>
-              <Button size="small" icon={<PhoneOutlined />}>{building.civilDefense.inspectorPhone}</Button>
-              <Button size="small" type="primary" ghost icon={<CalendarOutlined />}>جدولة فحص</Button>
+              <Button size="small" icon={<PhoneOutlined />} disabled={!cd.inspectorPhone || cd.inspectorPhone === '—'} href={cd.inspectorPhone && cd.inspectorPhone !== '—' ? `tel:${cd.inspectorPhone}` : undefined}>{cd.inspectorPhone}</Button>
+              <Button size="small" type="primary" ghost icon={<CalendarOutlined />}
+                onClick={() => inProgressCoc ? openCoc(inProgressCoc) : activeCoc ? openCoc(activeCoc) : openCoc(null, 'add')}>جدولة فحص</Button>
             </Space>
           </Col>
         </Row>
       </Card>
 
       {/* ── Renewal Stepper Modal ── */}
-      <Modal
-        open={renewalModalOpen}
-        onCancel={() => setRenewalModalOpen(false)}
-        footer={null}
-        width={680}
-        title={
-          <Space>
-            <AuditOutlined style={{ color: PRIMARY }} />
-            <Text strong>خطوات تجديد شهادة الدفاع المدني</Text>
-            {selectedCoc && <Tag color="blue">{selectedCoc.id}</Tag>}
-          </Space>
-        }
-      >
-        <div style={{ padding: '16px 0' }}>
-          <Steps
-            direction="vertical"
-            current={selectedCoc?.renewalStep ?? 0}
-            items={renewalSteps.map((s, i) => ({
-              title: <Text strong style={{ fontSize: 13 }}>{s.title}</Text>,
-              description: (
-                <div style={{ marginBottom: 8 }}>
-                  <Text type="secondary" style={{ fontSize: 12 }}>{s.description}</Text>
-                  {i === (selectedCoc?.renewalStep ?? 0) && (
-                    <div style={{ marginTop: 8 }}>
-                      <Button size="small" type="primary" style={{ marginInlineEnd: 8 }}>
-                        {i === 0 ? 'رفع الطلب' : i === 1 ? 'تسجيل الدفع' : i === 2 ? 'حجز موعد' : i === 3 ? 'تسجيل نتيجة الفحص' : i === 4 ? 'إرفاق إثبات التصحيح' : 'رفع الشهادة'}
-                      </Button>
-                      <Button size="small">مشاهدة التعليمات</Button>
-                    </div>
-                  )}
-                  {i < (selectedCoc?.renewalStep ?? 0) && (
-                    <Tag color="success" style={{ marginTop: 4, fontSize: 11 }}>✓ مكتملة</Tag>
-                  )}
-                </div>
-              ),
-              icon: s.icon,
-            }))}
-          />
-          <Divider />
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              <CalendarOutlined style={{ marginInlineEnd: 4 }} />موعد التجديد: {building.civilDefense.nextRenewalDue}
-            </Text>
-            <Space>
-              <Button icon={<FilePdfOutlined />}>تحميل نموذج الطلب</Button>
-              <Button type="primary" icon={<AuditOutlined />}>الانتقال للخطوة التالية</Button>
-            </Space>
-          </div>
-        </div>
-      </Modal>
+      <CocRenewalModal open={renewalModalOpen} mode={cocMode} coc={selectedCoc} buildingId={buildingId}
+        onClose={() => setRenewalModalOpen(false)} onChanged={() => setLiveKey(k => k + 1)} />
 
     </div>
   );
@@ -2570,7 +2780,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
             dataSource={activeRefills}
             onRow={r => ({ onClick: () => openRefill(r), style: { cursor: 'pointer' } })}
             columns={[
-              { title: 'رقم الطلب', dataIndex: 'id', render: (v: string) => <a style={{ fontSize: 12, color: PRIMARY, fontWeight: 600 }}>{v}</a> },
+              { title: 'رقم الطلب', dataIndex: 'id', render: (v: string, r: any) => <a style={{ fontSize: 12, color: PRIMARY, fontWeight: 600 }}>{r.requestNo ?? v}</a> },
               { title: 'الخزان', dataIndex: 'tankLabel', render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text> },
               { title: 'المستوى الحالي', dataIndex: 'levelPct', render: (v: number, r: any) => (
                 <div style={{ width: 100 }}>
@@ -2615,7 +2825,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           dataSource={[...refillRequests].sort((a, b) => b.requestDate.localeCompare(a.requestDate))}
           onRow={r => ({ onClick: () => openRefill(r), style: { cursor: 'pointer' } })}
           columns={[
-            { title: 'رقم الطلب', dataIndex: 'id', render: (v: string) => <a style={{ fontSize: 12, color: PRIMARY, fontWeight: 600 }}>{v}</a> },
+            { title: 'رقم الطلب', dataIndex: 'id', render: (v: string, r: any) => <a style={{ fontSize: 12, color: PRIMARY, fontWeight: 600 }}>{r.requestNo ?? v}</a> },
             { title: 'التاريخ', dataIndex: 'requestDate', render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text> },
             { title: 'الخزان', dataIndex: 'tankLabel', render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text> },
             { title: 'الكمية المطلوبة', dataIndex: 'requestedQty', render: (v: number, r: any) => <Text style={{ fontSize: 12 }}>{v.toLocaleString()} {r.quantityUnit}</Text> },
@@ -2660,45 +2870,112 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
   );
 
   const tabs = [
-    { key: 'overview', label: <span><BarChartOutlined /> نظرة عامة</span>, children: overviewTab },
-    { key: 'units', label: <span><ApartmentOutlined /> الوحدات ({building.units.length})</span>, children: unitsTab },
-    { key: 'meters', label: <span><FireOutlined /> العدادات ({building.meters.length})</span>, children: metersTab },
-    { key: 'tenants', label: <span><TeamOutlined /> المستأجرون ({building.tenants.length})</span>, children: tenantsTab },
-    { key: 'contracts', label: <span><SafetyCertificateOutlined /> عقود الغاز ({building.amcContracts.length + building.supplyContracts.length})</span>, children: contractsTab },
-    { key: 'visits', label: <span><CalendarOutlined style={{ color: '#1677ff' }} /> زيارات الصيانة ({building.scheduledVisits.length})</span>, children: scheduledVisitsTab },
-    { key: 'financials', label: <span><DollarOutlined /> الفواتير والمالية</span>, children: financialsTab },
+    { key: 'overview', label: <span><BarChartOutlined /> نظرة عامة</span>,
+      children: buildingId ? <BuildingOverviewLive key={liveKey} buildingId={buildingId} live={live} onGoTo={setActiveTab} /> : overviewTab },
+    { key: 'units', label: <span><ApartmentOutlined /> الوحدات ({live ? live.stats.units : building.units.length})</span>,
+      children: buildingId
+        ? <BuildingFloorPlan buildingId={buildingId} buildingName={hd.name} totalFloors={live?.totalFloors} onChanged={() => setLiveKey(k => k + 1)} />
+        : unitsTab },
+    { key: 'meters', label: <span><FireOutlined /> العدادات ({live ? live.stats.meters ?? 0 : building.meters.length})</span>,
+      children: buildingId
+        ? <BuildingMetersTab buildingId={buildingId} buildingName={hd.name} canManage={canManageBuilding} onChanged={() => setLiveKey(k => k + 1)} />
+        : metersTab },
+    { key: 'tenants', label: <span><TeamOutlined /> المستأجرون ({live ? live.stats.activeContracts ?? 0 : building.tenants.length})</span>,
+      children: buildingId
+        ? <BuildingTenantsTab buildingId={buildingId} buildingName={hd.name} canManage={canManageBuilding} onChanged={() => setLiveKey(k => k + 1)} />
+        : tenantsTab },
+    { key: 'contracts', label: <span><SafetyCertificateOutlined /> عقود الغاز ({amcList.length + supplyList.length})</span>, children: contractsTab },
+    { key: 'visits', label: <span><CalendarOutlined style={{ color: '#1677ff' }} /> زيارات الصيانة ({buildingId ? opsCounts?.visits ?? 0 : building.scheduledVisits.length})</span>,
+      children: buildingId ? <BuildingVisitsTab buildingId={buildingId} reloadKey={liveKey} /> : scheduledVisitsTab },
+    { key: 'financials', label: <span><DollarOutlined /> الفواتير والمالية</span>,
+      children: buildingId ? <BuildingFinanceLive key={liveKey} buildingId={buildingId} /> : financialsTab },
     { key: 'info', label: <span><BankOutlined /> معلومات المبنى</span>, children: infoTab },
-    { key: 'owners', label: <span><TeamOutlined /> الملاك ({building.owners.length})</span>, children: ownersTab },
-    { key: 'tanks', label: <span><DatabaseOutlined /> الخزانات ({building.tanks.length})</span>, children: tanksTab },
-    { key: 'refill', label: <span><FireOutlined style={{ color: '#fa8c16' }} /> طلبات التعبئة ({building.refillRequests.length})</span>, children: refillTab },
-    { key: 'service', label: <span><ToolOutlined /> طلبات الخدمة ({building.serviceRequests.length})</span>, children: serviceTab },
-    { key: 'docs', label: <span><FileTextOutlined /> الوثائق ({building.documents.length})</span>, children: docsTab },
-    { key: 'civildefense', label: <span><AuditOutlined style={{ color: '#1677ff' }} /> الدفاع المدني (CoC)</span>, children: civilDefenseTab },
-    { key: 'activity', label: <span><ClockCircleOutlined /> سجل النشاط</span>, children: activityTab },
+    { key: 'owners', label: <span><TeamOutlined /> الملاك ({live ? live.owners.length : building.owners.length})</span>,
+      children: buildingId ? <BuildingOwnersLive buildingId={buildingId} owners={(live?.owners ?? []) as any[]} canManage={canManageBuilding} onChanged={() => setLiveKey(k => k + 1)} /> : ownersTab },
+    { key: 'tanks', label: <span><DatabaseOutlined /> الخزانات ({live ? live.tanks.length : building.tanks.length})</span>,
+      children: buildingId ? <BuildingTanksYard buildingId={buildingId} canManage={canManageBuilding} reloadKey={liveKey} /> : tanksTab },
+    { key: 'refill', label: <span><FireOutlined style={{ color: '#fa8c16' }} /> طلبات التعبئة ({refillRequests.length})</span>, children: refillTab },
+    { key: 'service', label: <span><ToolOutlined /> طلبات الخدمة ({buildingId ? opsCounts?.service ?? 0 : building.serviceRequests.length})</span>,
+      children: buildingId ? <BuildingServiceRequestsTab buildingId={buildingId} reloadKey={liveKey} /> : serviceTab },
+    { key: 'docs', label: <span><FileTextOutlined /> الوثائق ({buildingId ? docCount ?? '…' : building.documents.length})</span>,
+      children: buildingId ? <BuildingDocsLive buildingId={buildingId} branchId={(live as any)?.branchId} canManage={can('documents.manage')} onCount={setDocCount} /> : docsTab },
+    { key: 'civildefense', label: <span><AuditOutlined style={{ color: '#1677ff' }} /> الدفاع المدني (CoC)</span>,
+      children: civilDefenseTab },
+    { key: 'activity', label: <span><ClockCircleOutlined /> سجل النشاط</span>,
+      children: buildingId ? <BuildingActivityLive key={liveKey} buildingId={buildingId} /> : activityTab },
   ];
 
+  // ── Grouped navigation: 5 main groups, each with its own sub-tabs ──
+  const tabByKey = Object.fromEntries(tabs.map(t => [t.key, t]));
+  const counts: Record<string, number> = {
+    units: live ? live.stats.units : building.units.length,
+    meters: live ? live.stats.meters ?? 0 : building.meters.length, tenants: live ? live.stats.activeContracts ?? 0 : building.tenants.length,
+    contracts: amcList.length + supplyList.length,
+    tanks: live ? live.tanks.length : building.tanks.length, refill: refillRequests.length,
+    visits: buildingId ? opsCounts?.visits ?? 0 : building.scheduledVisits.length,
+    service: buildingId ? opsCounts?.service ?? 0 : building.serviceRequests.length,
+    owners: live ? live.owners.length : building.owners.length, docs: buildingId ? docCount ?? 0 : building.documents.length,
+  };
+  const groups = [
+    { key: 'g-overview', label: 'نظرة عامة', icon: <BarChartOutlined />, tabs: ['overview'] },
+    { key: 'g-units', label: 'الوحدات والسكان', icon: <ApartmentOutlined />, tabs: ['units', 'meters', 'tenants'] },
+    { key: 'g-finance', label: 'العقود والمالية', icon: <FileTextOutlined />, tabs: ['contracts', 'financials'] },
+    { key: 'g-ops', label: 'التشغيل والصيانة', icon: <ToolOutlined />, tabs: ['tanks', 'refill', 'visits', 'service', 'civildefense'] },
+    { key: 'g-building', label: 'المبنى والوثائق', icon: <BankOutlined />, tabs: ['info', 'owners', 'docs', 'activity'] },
+  ];
+  const activeGroup = groups.find(g => g.tabs.includes(activeTab)) ?? groups[0];
+  const groupCount = (g: typeof groups[number]) => g.tabs.reduce((n, k) => n + (counts[k] ?? 0), 0);
+
+  useTrackView('Building', buildingId, hd?.name);
   return (
     <div style={{ padding: '0 0 24px' }}>
       {header}
+      {canManageBuilding && <EditBuildingModal buildingId={editOpen ? buildingId! : null} onClose={() => setEditOpen(false)}
+        onSaved={() => { setEditOpen(false); setLiveKey(k => k + 1); }} />}
       <style>{`
-        .bp-tabs .ant-tabs-nav-more { display: none !important; }
-        .bp-tabs .ant-tabs-nav-wrap { overflow: visible !important; }
-        .bp-tabs .ant-tabs-nav-list { overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; scrollbar-color: #1a5c2a44 transparent; }
-        .bp-tabs .ant-tabs-nav-list::-webkit-scrollbar { height: 3px; }
-        .bp-tabs .ant-tabs-nav-list::-webkit-scrollbar-thumb { background: #1a5c2a55; border-radius: 2px; }
+        .bp-nav { background: #fff; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 12px; }
+        .bp-groups { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; }
+        .bp-group { display: inline-flex; align-items: center; gap: 6px; padding: 7px 16px; border-radius: 8px; border: none; background: transparent;
+          font-family: inherit; font-size: 13px; font-weight: 600; color: #444; cursor: pointer; transition: background .15s, color .15s; }
+        .bp-group:hover { background: #f3f7f3; color: #1a5c2a; }
+        .bp-group.on { background: linear-gradient(135deg, #1a5c2a, #0b2e18); color: #c9a84c; box-shadow: 0 2px 6px rgba(26,92,42,.3); }
+        .bp-group .n { font-size: 11px; opacity: .7; }
+        .bp-sub > .ant-tabs-nav { margin: 0 !important; padding: 0 20px; border-top: 1px solid #f0f0f0; }
+        .bp-sub > .ant-tabs-nav::before { border-bottom: none !important; }
+        .bp-sub .ant-tabs-tab { padding: 10px 2px; font-size: 13px; }
+        .bp-sub .ant-tabs-tab-active .ant-tabs-tab-btn { font-weight: 700; }
+        .bp-sub .cnt { color: #999; font-size: 12px; margin-inline-start: 4px; }
       `}</style>
-      <Tabs className="bp-tabs" activeKey={activeTab} onChange={setActiveTab} items={tabs}
-        tabBarStyle={{ background: '#fff', borderRadius: 10, padding: '4px 16px 0', marginBottom: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}
-        tabBarGutter={4}
-      />
+
+      <div className="bp-nav">
+        <div className="bp-groups" role="tablist">
+          {groups.map(g => {
+            const n = groupCount(g);
+            return (
+              <button key={g.key} type="button" role="tab" aria-selected={g === activeGroup}
+                className={`bp-group${g === activeGroup ? ' on' : ''}`}
+                onClick={() => { if (g !== activeGroup) setActiveTab(g.tabs[0]); }}>
+                {g.icon}{g.label}{n > 0 && <span className="n">{n}</span>}
+              </button>
+            );
+          })}
+        </div>
+        {activeGroup.tabs.length > 1 && (
+          <Tabs className="bp-sub" activeKey={activeTab} onChange={setActiveTab} tabBarGutter={22}
+            items={activeGroup.tabs.map(k => ({ key: k, label: tabByKey[k].label, children: null }))} />
+        )}
+      </div>
+
+      <div key={activeTab}>{tabByKey[activeTab]?.children ?? tabByKey.overview.children}</div>
       <AddAmcContractModal
         open={amcModalOpen}
-        buildingName={building.name}
+        buildingId={buildingId}
+        buildingName={hd.name}
         ownerName={building.owners?.[0]?.name}
-        ownerPhone={building.owners?.[0]?.defaultPhone}
-        ownerEmail={building.owners?.[0]?.defaultEmail}
+        ownerPhone={building.owners?.[0]?.defaultPhone ?? undefined}
+        ownerEmail={building.owners?.[0]?.defaultEmail ?? undefined}
         onClose={() => setAmcModalOpen(false)}
-        onSave={(c) => { setAmcContracts(prev => [c, ...prev]); setAmcModalOpen(false); }}
+        onSave={(c) => { if (!buildingId) setAmcContracts(prev => [c, ...prev]); setAmcModalOpen(false); setLiveKey(k => k + 1); }}
       />
       <TenantProfileDrawer
         open={profileDrawerOpen}
@@ -2722,13 +2999,13 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
       <AddTenantModal
         open={addTenantOpen}
         onClose={() => setAddTenantOpen(false)}
-        buildingUnits={building.units.map(u => ({ key: u.key, no: u.no, floor: u.floor, typeLabel: u.typeLabel, tenant: u.tenant }))}
+        buildingUnits={building.units.map(u => ({ key: u.key, no: u.no, floor: u.floor, typeLabel: u.typeLabel, tenant: u.tenant ?? undefined })) as any}
         onAdd={(data) => { console.log('New tenant:', data); setAddTenantOpen(false); }}
       />
       <AddGasContractModal
         open={addContractOpen}
         onClose={() => { setAddContractOpen(false); setContractTenant(undefined); }}
-        buildingUnits={building.units.map(u => ({ key: u.key, no: u.no, floor: u.floor, typeLabel: u.typeLabel, tenant: u.tenant }))}
+        buildingUnits={building.units.map(u => ({ key: u.key, no: u.no, floor: u.floor, typeLabel: u.typeLabel, tenant: u.tenant ?? undefined })) as any}
         tenants={building.tenants.map(t => ({ id: t.id, name: t.name, unit: t.unit }))}
         defaultTenantId={contractTenant}
         nextContractNo={`GC-${new Date().getFullYear()}-${String(building.tenants.length + 1).padStart(3, '0')}`}
@@ -2762,7 +3039,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           typeLabel: u.typeLabel,
           tenant: u.tenant,
           meter: u.meter,
-        }))}
+        })) as any}
         nextMeterId={`M-0${(building.meters.length + 26).toString().padStart(2, '0')}`}
         onAdd={(meter) => { console.log('New meter:', meter); }}
       />
@@ -2775,10 +3052,45 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
           console.log('New units to add:', units);
         }}
       />
+      {buildingId && (
+        <UnitProfileDrawer unit={contractUnit} buildingName={hd.name} canManage={canManageBuilding} openAction={contractUnitAction}
+          onClose={() => { setContractUnit(null); setContractUnitAction(null); }}
+          onChanged={() => { setLiveKey(k => k + 1); contractUnit && unitsApi.get(contractUnit.id).then(setContractUnit).catch(() => undefined); }} />
+      )}
+      <Modal open={pickUnitOpen} title="عقد توريد جديد — اختر الوحدة" okText="متابعة" cancelText="إلغاء" okButtonProps={{ disabled: !pickUnitId }}
+        onCancel={() => setPickUnitOpen(false)}
+        onOk={() => { setPickUnitOpen(false); if (pickUnitId) openUnitFor(pickUnitId, 'tenant'); }}>
+        <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>الوحدات الشاغرة فقط — يُنشأ العقد مع المستأجر من ملف الوحدة (المستأجر، الرسوم، الشروط والأحكام، العداد).</Text>
+        <Select style={{ width: '100%' }} showSearch optionFilterProp="label" placeholder="اختر وحدة شاغرة…" value={pickUnitId ?? undefined} onChange={setPickUnitId}
+          notFoundContent="لا توجد وحدات شاغرة"
+          options={pickUnits.filter(u => !u.contractId && u.isActive !== false).map(u => ({ value: u.id, label: `وحدة ${u.no}${u.floor != null ? ` — طابق ${u.floor}` : ''}${u.typeLabel ? ` — ${u.typeLabel}` : ''}` }))} />
+      </Modal>
+      <Modal open={!!renewTarget} okText="تجديد" cancelText="إلغاء" onOk={submitRenew} confirmLoading={renewBusy} onCancel={() => setRenewTarget(null)} destroyOnClose
+        title={renewTarget?.kind === 'amc' ? `تجديد عقد الصيانة ${renewTarget?.c.contractNo ?? ''}` : `تجديد عقد التوريد ${renewTarget?.c.contractNo ?? ''}`}>
+        <Form form={renewForm} layout="vertical">
+          {renewTarget?.kind === 'supply' ? (
+            <>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>ينتهي العقد الحالي في {renewTarget.c.endDate ?? '—'} — يُمدد بنفس الشروط والرسوم.</Text>
+              <Form.Item name="months" label="مدة التجديد (أشهر)" rules={[{ required: true }]}><InputNumber min={1} max={60} style={{ width: '100%' }} /></Form.Item>
+              <Form.Item name="newEndDate" label="أو تاريخ انتهاء محدد (اختياري)"><DatePicker style={{ width: '100%' }} /></Form.Item>
+            </>
+          ) : (
+            <>
+              <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>يُنشأ عقد جديد بنفس مقدم الخدمة والعميل والنطاق والشروط وتكرار الزيارات، وتُولد الزيارات وجدول الدفعات للفترة الجديدة.</Text>
+              <Space style={{ display: 'flex' }} wrap>
+                <Form.Item name="startDate" label="بداية العقد الجديد" rules={[{ required: true }]}><DatePicker /></Form.Item>
+                <Form.Item name="endDate" label="نهاية العقد الجديد" rules={[{ required: true }]}><DatePicker /></Form.Item>
+              </Space>
+              <Form.Item name="annualValue" label="القيمة السنوية (د.إ)"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
+            </>
+          )}
+        </Form>
+      </Modal>
       <RefillRequestDrawer
         open={refillDrawerOpen}
         request={selectedRefill}
         onClose={() => { setRefillDrawerOpen(false); setSelectedRefill(null); }}
+        live={!!buildingId}
         onUpdate={(updated) => {
           setRefillRequests(prev => prev.map(r => r.id === updated.id ? updated : r));
           setSelectedRefill(updated);
@@ -2787,7 +3099,19 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack }) => {
       <NewRefillRequestModal
         open={newRefillOpen}
         onClose={() => setNewRefillOpen(false)}
-        tanks={(building.tanks ?? building.meters?.filter((m: any) => m.type === 'tank') ?? []).map((t: any) => ({
+        onCreate={buildingId ? async (v) => {
+          const r = await api<{ id: number }>('/refill-requests', { method: 'POST', body: v });
+          const fresh = mapLiveRefill(await api<any>(`/refill-requests/${(r as any).id}`));
+          setRefillRequests(prev => [fresh, ...prev]);
+          setNewRefillOpen(false);
+          setSelectedRefill(fresh);
+          setRefillDrawerOpen(true);
+        } : undefined}
+        tanks={buildingId ? ((live?.tanks ?? []) as any[]).filter(t => t.isActive !== false).map(t => ({
+          id: String(t.id), label: `${t.tankNo}${t.gasTypeName || t.gasType ? ` — ${t.gasTypeName ?? t.gasType}` : ''}`,
+          currentLevel: Number(t.currentLevel ?? t.currentLevelLitres ?? 0), capacity: Number(t.capacityLitres ?? 0),
+          levelPct: Math.round(Number(t.levelPct ?? 0)), unit: 'لتر',
+        })) : (building.tanks ?? building.meters?.filter((m: any) => m.type === 'tank') ?? []).map((t: any) => ({
           id: t.id || t.key,
           label: t.label || t.name || t.id || t.key,
           currentLevel: t.currentLevel ?? t.reading ?? 0,

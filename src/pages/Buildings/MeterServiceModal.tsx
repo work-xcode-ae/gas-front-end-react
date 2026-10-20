@@ -16,7 +16,6 @@ const { TextArea } = Input;
 const { Option } = Select;
 
 const PRIMARY = '#1a5c2a';
-const GOLD    = '#c9a84c';
 
 export type ServiceType = 'disconnect' | 'connect' | 'report_issue' | 'replace';
 

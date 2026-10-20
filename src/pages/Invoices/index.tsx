@@ -1,54 +1,50 @@
 import React from 'react';
-import { Tag } from 'antd';
-import { FileDoneOutlined } from '@ant-design/icons';
-import ModuleDashboard from '../../components/layout/ModuleDashboard';
-import { useTranslation } from 'react-i18next';
+import { Tabs } from 'antd';
+import { FileDoneOutlined, ShoppingCartOutlined, ArrowDownOutlined, ArrowUpOutlined, ProfileOutlined, CalendarOutlined, BankOutlined } from '@ant-design/icons';
+import { useSearchParams } from 'react-router-dom';
+import { PRIMARY, DARK, GOLD } from './shared';
+import SalesInvoices from './SalesInvoices';
+import PurchaseBills from './PurchaseBills';
+import Vouchers from './Vouchers';
+import Statement from './Statement';
+import CashflowCalendar from './Calendar';
+import Banking from './Banking';
+import { useAuth } from '../../auth/AuthContext';
 
+export { InvoiceDrawer } from './SalesInvoices';
+export type { InvoiceRow } from './SalesInvoices';
+
+/** One finance page: sales invoices, purchase bills, receipt / payment vouchers and the statement of account. */
 const InvoicesPage: React.FC = () => {
-  const { i18n } = useTranslation();
-  const isRTL = i18n.language === 'ar';
-  const color = '#1a5c2a';
-
-  const kpis = [
-    { title: isRTL ? 'الإجمالي' : 'Total', value: 248, color, bg: color + '22', icon: <FileDoneOutlined /> },
-    { title: isRTL ? 'نشط' : 'Active', value: 201, color: '#1565c0', bg: '#e3f2fd', icon: <FileDoneOutlined /> },
-    { title: isRTL ? 'هذا الشهر' : 'This Month', value: 32, color: '#00695c', bg: '#e0f2f1', icon: <FileDoneOutlined /> },
-    { title: isRTL ? 'قيد المراجعة' : 'Pending Review', value: 15, color: '#c62828', bg: '#ffebee', icon: <FileDoneOutlined /> },
-  ];
-
-  const charts = [{
-    title: isRTL ? 'الإحصائيات الشهرية' : 'Monthly Statistics',
-    series: [{ name: isRTL ? 'الإجمالي' : 'Total', data: [42, 55, 61, 48, 70, 80] }],
-    options: {
-      chart: { type: 'area', toolbar: { show: false } }, colors: [color],
-      fill: { type: 'gradient', gradient: { opacityFrom: 0.4, opacityTo: 0.05 } },
-      stroke: { curve: 'smooth', width: 3 },
-      xaxis: { categories: isRTL ? ['نوفمبر','ديسمبر','يناير','فبراير','مارس','أبريل'] : ['Nov','Dec','Jan','Feb','Mar','Apr'] },
-      grid: { borderColor: '#f0f0f0' },
-    },
-    type: 'area',
-  }];
-
-  const columns = [
-    { title: isRTL ? 'الرقم' : 'No.', dataIndex: 'no', key: 'no' },
-    { title: isRTL ? 'الاسم' : 'Name', dataIndex: 'name', key: 'name' },
-    { title: isRTL ? 'التاريخ' : 'Date', dataIndex: 'date', key: 'date' },
-    { title: isRTL ? 'الحالة' : 'Status', dataIndex: 'status', key: 'status',
-      render: (v: string) => <Tag color={v === 'active' ? 'success' : v === 'pending' ? 'warning' : 'default'}>
-        {v === 'active' ? (isRTL ? 'نشط' : 'Active') : v === 'pending' ? (isRTL ? 'قيد المراجعة' : 'Pending') : (isRTL ? 'منتهي' : 'Expired')}
-      </Tag>
-    },
-  ];
-
-  const data = [
-    { key: 1, no: '001', name: isRTL ? 'السجل الأول' : 'Record One', date: '2025-04-16', status: 'active' },
-    { key: 2, no: '002', name: isRTL ? 'السجل الثاني' : 'Record Two', date: '2025-04-15', status: 'pending' },
-    { key: 3, no: '003', name: isRTL ? 'السجل الثالث' : 'Record Three', date: '2025-04-14', status: 'active' },
-    { key: 4, no: '004', name: isRTL ? 'السجل الرابع' : 'Record Four', date: '2025-04-13', status: 'expired' },
-    { key: 5, no: '005', name: isRTL ? 'السجل الخامس' : 'Record Five', date: '2025-04-12', status: 'active' },
-  ];
-
-  return <ModuleDashboard title={isRTL ? 'الفواتير' : 'Invoices'} icon={<FileDoneOutlined />} color={color} kpis={kpis} charts={charts} tables={[{ title: isRTL ? 'السجلات الأخيرة' : 'Recent Records', columns, data }]} />;
+  const [params, setParams] = useSearchParams();
+  const { can } = useAuth();
+  const tab = params.get('tab') ?? 'sales';
+  const partyType = params.get('partyType') as 'customer' | 'supplier' | 'account' | null;
+  const partyId = Number(params.get('id')) || undefined;
+  return (
+    <div style={{ padding: '20px 24px' }}>
+      <div style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, ${DARK} 100%)`, borderBottom: `3px solid ${GOLD}`, borderRadius: 14, padding: '16px 20px', marginBottom: 12,
+        display: 'flex', alignItems: 'center', gap: 14 }}>
+        <span style={{ width: 46, height: 46, borderRadius: 12, background: 'rgba(201,168,76,.18)', color: GOLD, fontSize: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><FileDoneOutlined /></span>
+        <div>
+          <div style={{ color: '#fff', fontWeight: 700, fontSize: 18 }}>الفواتير والسندات</div>
+          <div style={{ color: 'rgba(255,255,255,.72)', fontSize: 12.5 }}>فواتير المبيعات والمشتريات، السندات، كشوف الحسابات، تقويم الدفعات والبنوك</div>
+        </div>
+      </div>
+      <div style={{ background: '#fff', borderRadius: 14, padding: '4px 16px 16px' }}>
+        <Tabs activeKey={tab} onChange={k => setParams({ tab: k })} destroyInactiveTabPane items={[
+          { key: 'sales', label: <span><FileDoneOutlined /> فواتير المبيعات</span>, children: <SalesInvoices embedded /> },
+          { key: 'purchases', label: <span><ShoppingCartOutlined /> فواتير المشتريات</span>, children: <PurchaseBills /> },
+          { key: 'receipts', label: <span style={{ color: PRIMARY }}><ArrowDownOutlined /> سندات القبض</span>, children: <Vouchers type="receipt" /> },
+          { key: 'payments', label: <span style={{ color: '#d46b08' }}><ArrowUpOutlined /> سندات الصرف</span>, children: <Vouchers type="payment" /> },
+          { key: 'statement', label: <span><ProfileOutlined /> كشف حساب</span>,
+            children: <Statement initial={partyType && partyId ? { partyType, id: partyId } : undefined} /> },
+          { key: 'calendar', label: <span><CalendarOutlined /> تقويم الدفعات والتدفق النقدي</span>, children: <CashflowCalendar /> },
+          ...(can('accounting.view') ? [{ key: 'banking', label: <span><BankOutlined /> البنوك والصندوق</span>, children: <Banking /> }] : []),
+        ]} />
+      </div>
+    </div>
+  );
 };
 
 export default InvoicesPage;

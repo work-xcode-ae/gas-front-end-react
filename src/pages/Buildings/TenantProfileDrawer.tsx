@@ -1,22 +1,20 @@
 import React, { useState } from 'react';
 import {
   Drawer, Typography, Tag, Button, Avatar, Row, Col,
-  Descriptions, Divider, Progress, Timeline, Tooltip,
-  Badge, Space, Modal, Form, Input, Select, message,
+  Progress, Timeline, 
+  Modal, Form, Input, message,
 } from 'antd';
 import {
   UserOutlined, PhoneOutlined, MailOutlined, IdcardOutlined,
   HomeOutlined, FireOutlined, CheckCircleOutlined, ClockCircleOutlined,
   ExclamationCircleOutlined, EditOutlined, PrinterOutlined,
   CalendarOutlined, ContainerOutlined, GlobalOutlined,
-  CloseOutlined, CreditCardOutlined, SafetyOutlined,
+  CloseOutlined, CreditCardOutlined, 
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
 const { Text, Title } = Typography;
-const { Option } = Select;
 const PRIMARY = '#1a5c2a';
-const GOLD    = '#c9a84c';
 
 /* ─── Types ─────────────────────────────────────────── */
 export interface TenantProfileProps {

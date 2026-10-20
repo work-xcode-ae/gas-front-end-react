@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import {
   Modal, Form, InputNumber, Select, DatePicker,
   Input, Row, Col, Typography, Tag, Divider,
-  Alert, Button, Space, Upload, message, Progress
+  Alert, Button, Upload, message, Progress
 } from 'antd';
 import {
   DashboardOutlined, HomeOutlined, UserOutlined,
   CameraOutlined, CheckCircleOutlined, WarningOutlined,
   RiseOutlined, FallOutlined, MinusOutlined,
-  CalendarOutlined, UploadOutlined
+  
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import type { MeterRecord } from './meterTypes';
@@ -46,7 +46,7 @@ const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
   const [form] = Form.useForm();
   const [newReading, setNewReading] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
+  const [, setConfirmed] = useState(false);
 
   useEffect(() => {
     if (open && meter) {
@@ -214,7 +214,7 @@ const MeterReadingModal: React.FC<MeterReadingModalProps> = ({
                 addonAfter="م³"
                 onChange={v => setNewReading(typeof v === 'number' ? v : null)}
                 formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                parser={v => v ? parseFloat(v.replace(/[^0-9.]/g, '')) : 0}
+                parser={((v?: string) => (v ? parseFloat(v.replace(/[^0-9.]/g, '')) : 0)) as any}
               />
             </Form.Item>
           </Col>

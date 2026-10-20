@@ -1,690 +1,352 @@
-import React, { useState } from 'react';
-import ReactApexChart from 'react-apexcharts';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Row, Col, Card, Table, Tag, Button, Typography, Space,
-  Avatar, Drawer, Descriptions, Modal, Form, Input, Select,
-  Alert, Divider, Tooltip, Switch, Badge, Tabs, Progress, Timeline,
+  Row, Col, Card, Table, Tag, Button, Typography, Space, Avatar, Modal, Form, Input, Select, Switch, Tabs, Checkbox, Popconfirm,
+  Tooltip, Empty, Alert, message, Spin, Badge,
 } from 'antd';
 import {
-  UserOutlined, PlusOutlined, LockOutlined, UnlockOutlined,
-  EditOutlined, DeleteOutlined, KeyOutlined, SafetyCertificateOutlined,
-  CheckCircleOutlined, CloseCircleOutlined, ClockCircleOutlined,
-  TeamOutlined, SettingOutlined, EyeOutlined, PrinterOutlined,
-  HistoryOutlined, SafetyOutlined, LoginOutlined, LogoutOutlined,
-  MailOutlined, PhoneOutlined, BankOutlined, CalendarOutlined,
+  UserOutlined, PlusOutlined, EditOutlined, DeleteOutlined, KeyOutlined, SafetyCertificateOutlined, TeamOutlined, CheckCircleOutlined,
+  CloseCircleOutlined, CrownOutlined, ReloadOutlined, SaveOutlined, LockOutlined, LaptopOutlined,
 } from '@ant-design/icons';
+import dayjs from 'dayjs';
+import { api, errorMessage, type Paged } from '../../api/client';
+import SessionsModal from '../../components/SessionsModal';
+import { useReference, locName } from '../../api/reference';
+import { useAuth } from '../../auth/AuthContext';
 
-const { Title, Text } = Typography;
-const { Option } = Select;
-
+const { Text } = Typography;
 const PRIMARY = '#1a5c2a';
-const GOLD    = '#c9a84c';
+const DARK = '#0b2e18';
+const GOLD = '#c9a84c';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-interface Permission { module: string; view: boolean; create: boolean; edit: boolean; delete: boolean; }
-interface Role {
-  id: string; name: string; nameAr: string; description: string;
-  color: string; permissions: Permission[]; usersCount?: number;
+interface UserRow {
+  id: number; email: string; nameEn?: string; nameAr?: string; phone?: string; branchId?: number; branch?: string; isActive: boolean;
+  lastLoginAt?: string; createdAt?: string; roles: { roleId: number; code: string; nameEn?: string; nameAr?: string }[]; branches: { branchId: number; code: string }[];
 }
-interface SystemUser {
-  id: string; name: string; email: string; phone: string;
-  department: string; position: string; roleIds: string[];
-  status: 'active' | 'inactive' | 'locked' | 'pending';
-  lastLogin?: string; lastLoginIP?: string;
-  createdAt: string; avatar?: string; twoFA: boolean;
-  loginCount: number;
-}
-interface ActivityLog {
-  id: string; userId: string; action: string; module: string;
-  timestamp: string; ip: string; status: 'success' | 'failed' | 'warning';
-}
+interface RoleRow { id: number; code: string; nameEn?: string; nameAr?: string; users: number; permissions: string[] }
+interface PermGroup { module: string; permissions: { id: number; code: string; nameEn?: string; nameAr?: string }[] }
 
-// ─── Mock Data ────────────────────────────────────────────────────────────────
-const MODULES = ['لوحة التحكم','المباني','العملاء','العقود','الفواتير','المدفوعات','الموظفين','المركبات','الأصول','التقارير','المستخدمين','الإعدادات'];
+const PASSWORD_RULE = { pattern: /^(?=.*[A-Za-z])(?=.*\d).{8,}$/, message: 'ثمانية أحرف على الأقل وتحتوي على حروف وأرقام' };
+const roleName = (r: { code: string; nameAr?: string; nameEn?: string }) => r.nameAr || r.nameEn || r.code;
+const ROLE_COLORS = ['#ff4d4f', '#fa8c16', '#1677ff', '#722ed1', '#13c2c2', '#52c41a', '#eb2f96', '#faad14'];
 
-const mkPerm = (module: string, v=true, c=false, e=false, d=false): Permission => ({ module, view:v, create:c, edit:e, delete:d });
+// ═════════════════════════════ users ═════════════════════════════
+function UsersTab({ roles, canManage }: { roles: RoleRow[]; canManage: boolean }) {
+  const { data: ref } = useReference('ar');
+  const { user: me } = useAuth();
+  const [rows, setRows] = useState<UserRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [f, setF] = useState<{ search?: string; roleId?: number; branchId?: number; active?: boolean }>({});
+  const [editing, setEditing] = useState<UserRow | 'new' | null>(null);
+  const [pwdUser, setPwdUser] = useState<UserRow | null>(null);
+  const [sessionsUser, setSessionsUser] = useState<UserRow | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [form] = Form.useForm();
+  const [pwdForm] = Form.useForm();
 
-const ROLES: Role[] = [
-  {
-    id:'R01', name:'Super Admin', nameAr:'مدير النظام', description:'صلاحية كاملة على جميع الوحدات', color:'#ff4d4f',
-    permissions: MODULES.map(m => ({ module:m, view:true, create:true, edit:true, delete:true })),
-  },
-  {
-    id:'R02', name:'Admin', nameAr:'مدير', description:'إدارة العمليات اليومية بدون حذف', color:'#fa8c16',
-    permissions: MODULES.map(m => mkPerm(m,true,true,true,false)),
-  },
-  {
-    id:'R03', name:'Accountant', nameAr:'محاسب', description:'الفواتير والمدفوعات والتقارير المالية', color:'#1890ff',
-    permissions: ['لوحة التحكم','الفواتير','المدفوعات','التقارير'].map(m=>mkPerm(m,true,true,true,false))
-      .concat(MODULES.filter(m=>!['لوحة التحكم','الفواتير','المدفوعات','التقارير'].includes(m)).map(m=>mkPerm(m,true))),
-  },
-  {
-    id:'R04', name:'Operations', nameAr:'عمليات', description:'متابعة العقود وطلبات الخدمة والصيانة', color:'#52c41a',
-    permissions: ['لوحة التحكم','المباني','العملاء','العقود'].map(m=>mkPerm(m,true,true,true,false))
-      .concat(MODULES.filter(m=>!['لوحة التحكم','المباني','العملاء','العقود'].includes(m)).map(m=>mkPerm(m,true))),
-  },
-  {
-    id:'R05', name:'Viewer', nameAr:'مشاهد', description:'قراءة فقط لجميع الوحدات', color:'#999',
-    permissions: MODULES.map(m=>mkPerm(m,true)),
-  },
-  {
-    id:'R06', name:'HR', nameAr:'موارد بشرية', description:'إدارة الموظفين والرواتب', color:'#722ed1',
-    permissions: ['لوحة التحكم','الموظفين','التقارير'].map(m=>mkPerm(m,true,true,true,false))
-      .concat(MODULES.filter(m=>!['لوحة التحكم','الموظفين','التقارير'].includes(m)).map(m=>mkPerm(m,true))),
-  },
-];
+  const load = useCallback(() => {
+    setLoading(true);
+    api<Paged<UserRow>>('/users', { query: { pageSize: 0, search: f.search, roleId: f.roleId, branchId: f.branchId, active: f.active } })
+      .then(r => setRows(r.items)).catch(e => message.error(errorMessage(e))).finally(() => setLoading(false));
+  }, [f]);
+  useEffect(() => { load(); }, [load]);
 
-const USERS: SystemUser[] = [
-  { id:'U01', name:'أحمد محمد الراشدي', email:'ahmed@binsidra.ae', phone:'+971501234567', department:'الإدارة', position:'مدير عام', roleIds:['R01'], status:'active', lastLogin:'2026-09-24 09:15', lastLoginIP:'192.168.1.10', createdAt:'2023-01-01', twoFA:true, loginCount:412 },
-  { id:'U02', name:'سارة خالد المنصوري', email:'sara@binsidra.ae', phone:'+971502345678', department:'المالية', position:'مدير مالي', roleIds:['R02','R03'], status:'active', lastLogin:'2026-09-24 08:45', lastLoginIP:'192.168.1.22', createdAt:'2023-03-15', twoFA:true, loginCount:287 },
-  { id:'U03', name:'خالد سعيد النعيمي', email:'khaled@binsidra.ae', phone:'+971503456789', department:'العمليات', position:'مدير عمليات', roleIds:['R04'], status:'active', lastLogin:'2026-09-23 17:30', lastLoginIP:'10.0.0.5', createdAt:'2023-02-10', twoFA:false, loginCount:341 },
-  { id:'U04', name:'فاطمة علي الكعبي', email:'fatima@binsidra.ae', phone:'+971504567890', department:'المحاسبة', position:'محاسبة', roleIds:['R03'], status:'active', lastLogin:'2026-09-24 10:00', lastLoginIP:'192.168.1.35', createdAt:'2023-06-01', twoFA:true, loginCount:198 },
-  { id:'U05', name:'محمد ناصر الحمادي', email:'moh@binsidra.ae', phone:'+971505678901', department:'الموارد البشرية', position:'مدير HR', roleIds:['R06'], status:'active', lastLogin:'2026-09-22 14:20', lastLoginIP:'10.0.0.8', createdAt:'2023-08-20', twoFA:true, loginCount:156 },
-  { id:'U06', name:'نورة سلطان الظاهري', email:'noura@binsidra.ae', phone:'+971506789012', department:'الإدارة', position:'مساعدة إدارية', roleIds:['R05'], status:'active', lastLogin:'2026-09-24 11:00', lastLoginIP:'192.168.2.10', createdAt:'2024-01-10', twoFA:false, loginCount:89 },
-  { id:'U07', name:'عمر فيصل الشحي', email:'omar@binsidra.ae', phone:'+971507890123', department:'تقنية المعلومات', position:'مطور نظام', roleIds:['R02'], status:'inactive', lastLogin:'2026-09-10 09:00', lastLoginIP:'10.0.0.12', createdAt:'2023-11-05', twoFA:true, loginCount:203 },
-  { id:'U08', name:'ريم جاسم الكندي', email:'reem@binsidra.ae', phone:'+971508901234', department:'العمليات', position:'مشرف عمليات', roleIds:['R04'], status:'pending', createdAt:'2026-09-20', twoFA:false, loginCount:0 },
-  { id:'U09', name:'يوسف علي الشامسي', email:'yousuf@binsidra.ae', phone:'+971509012345', department:'المالية', position:'مراجع داخلي', roleIds:['R03','R05'], status:'locked', lastLogin:'2026-09-15 13:45', lastLoginIP:'10.0.1.5', createdAt:'2024-03-01', twoFA:false, loginCount:45 },
-  { id:'U10', name:'مريم حمد الزعابي', email:'mariam@binsidra.ae', phone:'+971500123456', department:'الموارد البشرية', position:'أخصائية HR', roleIds:['R06'], status:'active', lastLogin:'2026-09-23 16:00', lastLoginIP:'192.168.1.50', createdAt:'2024-05-15', twoFA:true, loginCount:67 },
-];
+  const branches = ref?.branches ?? [];
+  const roleColor = useMemo(() => Object.fromEntries(roles.map((r, i) => [r.id, r.code === 'ADMIN' ? '#ff4d4f' : ROLE_COLORS[(i + 1) % ROLE_COLORS.length]])), [roles]);
 
-// Add role usersCount
-ROLES.forEach(r => { r.usersCount = USERS.filter(u=>u.roleIds.includes(r.id)).length; });
+  const openNew = () => { form.resetFields(); form.setFieldsValue({ isActive: true, roleIds: [], branchIds: [] }); setEditing('new'); };
+  const openEdit = (u: UserRow) => {
+    form.resetFields();
+    form.setFieldsValue({ email: u.email, nameAr: u.nameAr, nameEn: u.nameEn, phone: u.phone, branchId: u.branchId, isActive: u.isActive,
+      roleIds: u.roles.map(r => r.roleId), branchIds: u.branches.map(b => b.branchId) });
+    setEditing(u);
+  };
 
-const ACTIVITY_LOGS: ActivityLog[] = [
-  { id:'L01', userId:'U01', action:'تسجيل دخول', module:'النظام', timestamp:'2026-09-24 09:15', ip:'192.168.1.10', status:'success' },
-  { id:'L02', userId:'U04', action:'إنشاء فاتورة', module:'الفواتير', timestamp:'2026-09-24 09:30', ip:'192.168.1.35', status:'success' },
-  { id:'L03', userId:'U09', action:'محاولة تسجيل دخول', module:'النظام', timestamp:'2026-09-24 08:00', ip:'10.0.1.5', status:'failed' },
-  { id:'L04', userId:'U02', action:'تعديل عقد', module:'العقود', timestamp:'2026-09-24 08:45', ip:'192.168.1.22', status:'success' },
-  { id:'L05', userId:'U03', action:'حذف طلب خدمة', module:'العمليات', timestamp:'2026-09-23 17:00', ip:'10.0.0.5', status:'warning' },
-  { id:'L06', userId:'U07', action:'محاولة الوصول لصفحة محظورة', module:'الإعدادات', timestamp:'2026-09-23 12:00', ip:'10.0.0.12', status:'failed' },
-  { id:'L07', userId:'U05', action:'تعديل بيانات موظف', module:'الموظفين', timestamp:'2026-09-22 14:20', ip:'10.0.0.8', status:'success' },
-  { id:'L08', userId:'U06', action:'تسجيل دخول', module:'النظام', timestamp:'2026-09-24 11:00', ip:'192.168.2.10', status:'success' },
-  { id:'L09', userId:'U10', action:'إنشاء تقرير', module:'التقارير', timestamp:'2026-09-23 16:00', ip:'192.168.1.50', status:'success' },
-  { id:'L10', userId:'U01', action:'إضافة مستخدم', module:'المستخدمين', timestamp:'2026-09-20 11:00', ip:'192.168.1.10', status:'success' },
-];
+  const body = (u: UserRow, patch: Partial<Record<string, unknown>> = {}) => ({
+    email: u.email, nameEn: u.nameEn ?? null, nameAr: u.nameAr ?? null, phone: u.phone ?? null, branchId: u.branchId ?? null, isActive: u.isActive,
+    roleIds: u.roles.map(r => r.roleId), branchIds: u.branches.map(b => b.branchId), password: null, ...patch,
+  });
 
-const STATUS_MAP: Record<string, {label:string; color:string}> = {
-  active:   { label:'نشط',         color:'green' },
-  inactive: { label:'غير نشط',     color:'default' },
-  locked:   { label:'مقفل',        color:'red' },
-  pending:  { label:'قيد التفعيل', color:'orange' },
-};
+  const save = async () => {
+    const v = await form.validateFields();
+    setSaving(true);
+    try {
+      const payload = { email: v.email, nameAr: v.nameAr || null, nameEn: v.nameEn || null, phone: v.phone || null, branchId: v.branchId ?? null,
+        isActive: !!v.isActive, roleIds: v.roleIds ?? [], branchIds: v.branchIds ?? [], password: v.password || null };
+      if (editing === 'new') await api('/users', { method: 'POST', body: payload });
+      else if (editing) await api(`/users/${editing.id}`, { method: 'PUT', body: payload });
+      message.success(editing === 'new' ? 'تمت إضافة المستخدم' : 'تم حفظ التعديلات');
+      setEditing(null); load();
+    } catch (e) { message.error(errorMessage(e), 6); } finally { setSaving(false); }
+  };
 
-// ─── User Drawer ──────────────────────────────────────────────────────────────
-const UserDrawer: React.FC<{ user: SystemUser | null; open: boolean; onClose: () => void; onEdit: (u: SystemUser) => void }> = ({ user, open, onClose, onEdit }) => {
-  if (!user) return null;
-  const u = user;
-  const userRoles = ROLES.filter(r => u.roleIds.includes(r.id));
-  const userLogs  = ACTIVITY_LOGS.filter(l => l.userId === u.id).sort((a,b)=>b.timestamp.localeCompare(a.timestamp));
-  const allPerms  = Array.from(new Set(userRoles.flatMap(r=>r.permissions.map(p=>p.module))));
+  const toggleActive = async (u: UserRow, isActive: boolean) => {
+    try { await api(`/users/${u.id}`, { method: 'PUT', body: body(u, { isActive }) }); message.success(isActive ? 'تم تفعيل المستخدم' : 'تم إيقاف المستخدم'); load(); }
+    catch (e) { message.error(errorMessage(e), 6); }
+  };
+  const remove = async (u: UserRow) => {
+    try { await api(`/users/${u.id}`, { method: 'DELETE' }); message.success('تم حذف المستخدم'); load(); } catch (e) { message.error(errorMessage(e), 6); }
+  };
+  const resetPassword = async () => {
+    const v = await pwdForm.validateFields();
+    setSaving(true);
+    try { await api(`/users/${pwdUser!.id}/reset-password`, { method: 'POST', body: { newPassword: v.newPassword } }); message.success('تم تغيير كلمة المرور'); setPwdUser(null); }
+    catch (e) { message.error(errorMessage(e), 6); } finally { setSaving(false); }
+  };
 
-  // Merge permissions across roles (OR logic)
-  const mergedPerms = MODULES.map(m => {
-    const plist = userRoles.flatMap(r => r.permissions.filter(p=>p.module===m));
-    return {
-      module: m,
-      view:   plist.some(p=>p.view),
-      create: plist.some(p=>p.create),
-      edit:   plist.some(p=>p.edit),
-      delete: plist.some(p=>p.delete),
-    };
-  }).filter(p => p.view);
-  void allPerms;
-
-  const tabItems = [
-    {
-      key: 'info',
-      label: <Space><UserOutlined />معلومات شخصية</Space>,
-      children: (
-        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-          <Card size="small" bordered={false} style={{ borderRadius:10, background:'linear-gradient(135deg,#f0f9f2,#e8f5e9)', border:'1px solid #c8e6c9' }}>
-            <Row gutter={12} align="middle">
-              <Col>
-                <Avatar size={56} style={{ background:PRIMARY, fontSize:20 }}>
-                  {u.name.charAt(0)}
-                </Avatar>
-              </Col>
-              <Col flex={1}>
-                <div style={{ fontSize:15, fontWeight:700 }}>{u.name}</div>
-                <div style={{ fontSize:12, color:'#555' }}>{u.position} · {u.department}</div>
-                <Space style={{ marginTop:4 }} wrap>
-                  {userRoles.map(r=><Tag key={r.id} color={r.color} style={{fontSize:10}}>{r.nameAr}</Tag>)}
-                  <Tag color={STATUS_MAP[u.status].color}>{STATUS_MAP[u.status].label}</Tag>
-                </Space>
-              </Col>
-              <Col style={{ textAlign:'center' }}>
-                <div style={{ fontSize:10, color:'#888' }}>جلسات الدخول</div>
-                <div style={{ fontWeight:700, fontSize:18, color:PRIMARY }}>{u.loginCount}</div>
-              </Col>
-            </Row>
-          </Card>
-
-          <Row gutter={10}>
-            {[
-              { label:'2FA', value: u.twoFA ? 'مفعل' : 'غير مفعل', color: u.twoFA?'#52c41a':'#ff4d4f' },
-              { label:'آخر دخول', value: u.lastLogin?.split(' ')[0] || '-', color:'#333' },
-              { label:'عدد الصلاحيات', value: userRoles.flatMap(r=>r.permissions).filter(p=>p.create||p.edit||p.delete).length, color:PRIMARY },
-            ].map((s,i)=>(
-              <Col span={8} key={i}>
-                <Card size="small" bordered={false} style={{ textAlign:'center', background:'#f9fafb', borderRadius:8 }}>
-                  <div style={{ fontSize:10, color:'#888' }}>{s.label}</div>
-                  <div style={{ fontSize:14, fontWeight:700, color:s.color }}>{s.value}</div>
-                </Card>
-              </Col>
-            ))}
-          </Row>
-
-          <Descriptions size="small" column={2} bordered style={{ borderRadius:8 }}>
-            <Descriptions.Item label={<Space><MailOutlined/>البريد</Space>} span={2}><Text copyable style={{fontSize:12}}>{u.email}</Text></Descriptions.Item>
-            <Descriptions.Item label={<Space><PhoneOutlined/>الهاتف</Space>}>{u.phone}</Descriptions.Item>
-            <Descriptions.Item label={<Space><BankOutlined/>القسم</Space>}>{u.department}</Descriptions.Item>
-            <Descriptions.Item label={<Space><CalendarOutlined/>تاريخ الإنشاء</Space>}>{u.createdAt}</Descriptions.Item>
-            <Descriptions.Item label="آخر إيبي">{u.lastLoginIP || '-'}</Descriptions.Item>
-          </Descriptions>
-        </div>
-      ),
-    },
-    {
-      key: 'permissions',
-      label: <Space><KeyOutlined />الصلاحيات</Space>,
-      children: (
-        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          <Alert message={`الصلاحيات من الأدوار: ${userRoles.map(r=>r.nameAr).join('، ')}`} type="info" showIcon style={{fontSize:11}} />
-          <Table
-            size="small"
-            dataSource={mergedPerms}
-            rowKey="module"
-            pagination={false}
-            columns={[
-              { title:'الوحدة', dataIndex:'module', key:'module', render:(v:string)=><Text style={{fontSize:12}}>{v}</Text> },
-              { title:'عرض', dataIndex:'view',   key:'view',   width:55, render:(v:boolean)=>v?<CheckCircleOutlined style={{color:'#52c41a'}}/>:<CloseCircleOutlined style={{color:'#ddd'}}/> },
-              { title:'إضافة', dataIndex:'create', key:'create', width:55, render:(v:boolean)=>v?<CheckCircleOutlined style={{color:'#1890ff'}}/>:<CloseCircleOutlined style={{color:'#ddd'}}/> },
-              { title:'تعديل', dataIndex:'edit',   key:'edit',   width:55, render:(v:boolean)=>v?<CheckCircleOutlined style={{color:'#fa8c16'}}/>:<CloseCircleOutlined style={{color:'#ddd'}}/> },
-              { title:'حذف', dataIndex:'delete', key:'delete', width:55, render:(v:boolean)=>v?<CheckCircleOutlined style={{color:'#ff4d4f'}}/>:<CloseCircleOutlined style={{color:'#ddd'}}/> },
-            ]}
-          />
-        </div>
-      ),
-    },
-    {
-      key: 'activity',
-      label: <Space><HistoryOutlined />سجل النشاط</Space>,
-      children: (
-        <div>
-          {userLogs.length === 0 ? <Alert message="لا يوجد سجل نشاط" type="info" showIcon /> :
-            <Timeline mode="right" items={userLogs.map(l => ({
-              color: l.status==='success'?'green':l.status==='failed'?'red':'orange',
-              label: <Text style={{fontSize:10}}>{l.timestamp}</Text>,
-              children: (
-                <div>
-                  <Space>
-                    <Tag color={l.status==='success'?'green':l.status==='failed'?'red':'orange'} style={{fontSize:10}}>
-                      {l.status==='success'?'نجاح':l.status==='failed'?'فشل':'تحذير'}
-                    </Tag>
-                    <Text style={{fontSize:12}}>{l.action}</Text>
-                    <Tag style={{fontSize:10}}>{l.module}</Tag>
-                  </Space>
-                  <div style={{fontSize:10, color:'#888'}}>{l.ip}</div>
-                </div>
-              ),
-            }))} />
-          }
-        </div>
-      ),
-    },
-  ];
+  const active = rows.filter(u => u.isActive).length;
+  const admins = rows.filter(u => u.roles.some(r => r.code === 'ADMIN')).length;
+  const neverLogged = rows.filter(u => !u.lastLoginAt).length;
 
   return (
-    <Drawer
-      open={open} onClose={onClose} width={560}
-      title={<Space><Avatar size="small" style={{background:PRIMARY}}>{u.name.charAt(0)}</Avatar><span>{u.name}</span></Space>}
-      extra={<Space>
-        <Button size="small" icon={<EditOutlined />} onClick={()=>onEdit(u)}>تعديل</Button>
-        <Button size="small" icon={<PrinterOutlined />}>طباعة</Button>
-      </Space>}
-    >
-      <Tabs items={tabItems} size="small" />
-    </Drawer>
-  );
-};
-
-// ─── Role Card ────────────────────────────────────────────────────────────────
-const RoleCard: React.FC<{ role: Role; onClick: () => void }> = ({ role, onClick }) => (
-  <Card
-    size="small" bordered={false} hoverable onClick={onClick}
-    style={{ borderRadius:12, border:`2px solid ${role.color}22`, background:`${role.color}08`, cursor:'pointer' }}
-  >
-    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-      <Space>
-        <Avatar size="small" style={{ background:role.color, fontSize:12 }}><SafetyCertificateOutlined /></Avatar>
-        <Text strong style={{ fontSize:13 }}>{role.nameAr}</Text>
-      </Space>
-      <Badge count={role.usersCount} style={{ background:role.color }} />
-    </div>
-    <div style={{ fontSize:11, color:'#555', marginBottom:8 }}>{role.description}</div>
-    <div style={{ display:'flex', gap:4, flexWrap:'wrap' }}>
-      {role.permissions.filter(p=>p.create||p.edit||p.delete).slice(0,4).map(p=>(
-        <Tag key={p.module} style={{ fontSize:9, margin:0 }}>{p.module}</Tag>
-      ))}
-      {role.permissions.filter(p=>p.create||p.edit||p.delete).length > 4 &&
-        <Tag style={{fontSize:9, margin:0}}>+{role.permissions.filter(p=>p.create||p.edit||p.delete).length-4}</Tag>
-      }
-    </div>
-  </Card>
-);
-
-// ─── Role Detail Modal ────────────────────────────────────────────────────────
-const RoleDetailModal: React.FC<{ role: Role | null; open: boolean; onClose: () => void }> = ({ role, open, onClose }) => {
-  if (!role) return null;
-  return (
-    <Modal open={open} onCancel={onClose} footer={<Button onClick={onClose}>إغلاق</Button>} width={680}
-      title={<Space><SafetyCertificateOutlined style={{color:role.color}} /><span style={{color:role.color}}>{role.nameAr}</span><Text type="secondary" style={{fontSize:12}}>({role.name})</Text></Space>}
-    >
-      <Alert message={role.description} type="info" showIcon style={{marginBottom:14}} />
-      <Table
-        size="small"
-        dataSource={role.permissions}
-        rowKey="module"
-        pagination={false}
-        columns={[
-          { title:'الوحدة', dataIndex:'module', key:'module' },
-          { title:<Space><EyeOutlined/>عرض</Space>, dataIndex:'view', key:'view', width:70,
-            render:(v:boolean)=>v?<CheckCircleOutlined style={{color:'#52c41a'}}/>:<CloseCircleOutlined style={{color:'#ddd'}}/> },
-          { title:<Space><PlusOutlined/>إضافة</Space>, dataIndex:'create', key:'create', width:70,
-            render:(v:boolean)=>v?<CheckCircleOutlined style={{color:'#1890ff'}}/>:<CloseCircleOutlined style={{color:'#ddd'}}/> },
-          { title:<Space><EditOutlined/>تعديل</Space>, dataIndex:'edit', key:'edit', width:70,
-            render:(v:boolean)=>v?<CheckCircleOutlined style={{color:'#fa8c16'}}/>:<CloseCircleOutlined style={{color:'#ddd'}}/> },
-          { title:<Space><DeleteOutlined/>حذف</Space>, dataIndex:'delete', key:'delete', width:70,
-            render:(v:boolean)=>v?<CheckCircleOutlined style={{color:'#ff4d4f'}}/>:<CloseCircleOutlined style={{color:'#ddd'}}/> },
-        ]}
-        rowClassName={(r)=>r.create||r.edit||r.delete?'':'ant-table-row-disabled'}
-      />
-      <Divider />
-      <Text type="secondary" style={{fontSize:12}}>
-        المستخدمون بهذا الدور: {USERS.filter(u=>u.roleIds.includes(role.id)).map(u=>u.name).join(' • ')||'لا يوجد'}
-      </Text>
-    </Modal>
-  );
-};
-
-// ─── Main Users Page ─────────────────────────────────────────────────────────
-const UsersPage: React.FC = () => {
-  const [selUser, setSelUser] = useState<SystemUser | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [addOpen, setAddOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
-  const [selRole, setSelRole] = useState<Role | null>(null);
-  const [roleModalOpen, setRoleModalOpen] = useState(false);
-  const [addForm] = Form.useForm();
-  const [editForm] = Form.useForm();
-  const [filterStatus, setFilterStatus] = useState('');
-  const [filterRole, setFilterRole] = useState('');
-  const [filterDept, setFilterDept] = useState('');
-  const [activeTab, setActiveTab] = useState('users');
-  const [rev, setRev] = useState(0);
-  void rev;
-
-  const depts = [...new Set(USERS.map(u => u.department))];
-  const filtered = USERS.filter(u =>
-    (!filterStatus || u.status === filterStatus) &&
-    (!filterRole   || u.roleIds.includes(filterRole)) &&
-    (!filterDept   || u.department === filterDept)
-  );
-
-  // Stats
-  const active   = USERS.filter(u=>u.status==='active').length;
-  const inactive = USERS.filter(u=>u.status==='inactive').length;
-  const locked   = USERS.filter(u=>u.status==='locked').length;
-  const pending  = USERS.filter(u=>u.status==='pending').length;
-  const with2FA  = USERS.filter(u=>u.twoFA).length;
-  const admins   = USERS.filter(u=>u.roleIds.includes('R01')||u.roleIds.includes('R02')).length;
-
-  // Chart: role distribution
-  const roleChartSeries = ROLES.map(r=>r.usersCount||0);
-  const roleChartOpts: ApexCharts.ApexOptions = {
-    chart: { fontFamily:'Tajawal,sans-serif', toolbar:{show:false} },
-    labels: ROLES.map(r=>r.nameAr),
-    colors: ROLES.map(r=>r.color),
-    legend: { position:'bottom', fontSize:'11px' },
-    dataLabels: { enabled:true, formatter:(v:number)=>v.toFixed(0) },
-  };
-
-  // Chart: status distribution
-  const statusSeries = [active, inactive, locked, pending];
-  const statusOpts: ApexCharts.ApexOptions = {
-    chart: { fontFamily:'Tajawal,sans-serif', toolbar:{show:false} },
-    labels: ['نشط','غير نشط','مقفل','قيد التفعيل'],
-    colors: ['#52c41a','#aaa','#ff4d4f','#fa8c16'],
-    plotOptions: { pie: { donut: { size:'60%' } } },
-    legend: { position:'bottom', fontSize:'11px' },
-    dataLabels: { formatter:(v:number)=>v.toFixed(0) },
-  };
-
-  // Chart: logins by user (top 6)
-  const topUsers = [...USERS].sort((a,b)=>b.loginCount-a.loginCount).slice(0,6);
-  const loginBarOpts: ApexCharts.ApexOptions = {
-    chart: { fontFamily:'Tajawal,sans-serif', toolbar:{show:false} },
-    xaxis: { categories: topUsers.map(u=>u.name.split(' ')[0]+' '+u.name.split(' ')[1]), labels:{style:{fontSize:'10px'}} },
-    colors: [PRIMARY],
-    plotOptions: { bar: { borderRadius:6, columnWidth:'55%' } },
-    dataLabels: { enabled:false },
-    yaxis: { title:{ text:'عدد الجلسات' } },
-  };
-
-  // Chart: activity log status pie
-  const logSuccess = ACTIVITY_LOGS.filter(l=>l.status==='success').length;
-  const logFailed  = ACTIVITY_LOGS.filter(l=>l.status==='failed').length;
-  const logWarn    = ACTIVITY_LOGS.filter(l=>l.status==='warning').length;
-  const activityOpts: ApexCharts.ApexOptions = {
-    chart: { fontFamily:'Tajawal,sans-serif' },
-    labels: ['نجاح','فشل','تحذير'],
-    colors: ['#52c41a','#ff4d4f','#fa8c16'],
-    plotOptions: { radialBar: { hollow:{size:'40%'}, dataLabels:{ name:{fontSize:'11px'}, value:{fontSize:'18px',fontWeight:700} } } },
-  };
-
-  // Chart: dept user count
-  const deptMap: Record<string,number> = {};
-  USERS.forEach(u=>{ deptMap[u.department]=(deptMap[u.department]||0)+1; });
-  const deptBarOpts: ApexCharts.ApexOptions = {
-    chart: { fontFamily:'Tajawal,sans-serif', toolbar:{show:false} },
-    xaxis: { categories: Object.keys(deptMap), labels:{style:{fontSize:'10px'}} },
-    colors: [GOLD],
-    plotOptions: { bar: { borderRadius:6, horizontal:true } },
-    dataLabels: { enabled:true },
-  };
-
-  // Chart: 2FA adoption radial
-  const twoFAPct = Math.round((with2FA/USERS.length)*100);
-  const twoFAOpts: ApexCharts.ApexOptions = {
-    chart: { fontFamily:'Tajawal,sans-serif' },
-    labels: ['تفعيل 2FA'],
-    colors: ['#52c41a'],
-    plotOptions: { radialBar: { hollow:{size:'60%'}, dataLabels:{ name:{fontSize:'13px'}, value:{fontSize:'26px',fontWeight:700} } } },
-  };
-
-  const userColumns = [
-    { title:'المستخدم', key:'name', render:(_:any, r:SystemUser)=>
-        <Space>
-          <Avatar size={32} style={{background:PRIMARY,fontSize:13}}>{r.name.charAt(0)}</Avatar>
-          <div>
-            <div style={{fontSize:12,fontWeight:600}}>{r.name}</div>
-            <div style={{fontSize:10,color:'#888'}}>{r.email}</div>
-          </div>
-        </Space>
-    },
-    { title:'القسم', dataIndex:'department', key:'dept', render:(v:string)=><Text style={{fontSize:12}}>{v}</Text> },
-    { title:'الأدوار', key:'roles', render:(_:any,r:SystemUser)=>
-        <Space wrap>{ROLES.filter(ro=>r.roleIds.includes(ro.id)).map(ro=><Tag key={ro.id} color={ro.color} style={{fontSize:10}}>{ro.nameAr}</Tag>)}</Space>
-    },
-    { title:'الحالة', dataIndex:'status', key:'status', render:(v:string)=><Tag color={STATUS_MAP[v].color}>{STATUS_MAP[v].label}</Tag> },
-    { title:'2FA', dataIndex:'twoFA', key:'twofa', render:(v:boolean)=><Tag color={v?'green':'default'}>{v?'مفعل':'معطل'}</Tag> },
-    { title:'آخر دخول', dataIndex:'lastLogin', key:'lastLogin', render:(v?:string)=><Text style={{fontSize:11}}>{v?.split(' ')[0]||'-'}</Text> },
-    { title:'إجراءات', key:'act', render:(_:any,r:SystemUser)=>
-        <Space size={4}>
-          <Tooltip title="التفاصيل"><Button size="small" icon={<EyeOutlined/>} onClick={()=>{setSelUser(r);setDrawerOpen(true);}}/></Tooltip>
-          <Tooltip title="تعديل"><Button size="small" icon={<EditOutlined/>} onClick={()=>{setSelUser(r);editForm.setFieldsValue({...r,roleIds:r.roleIds});setEditOpen(true);}}/></Tooltip>
-          <Tooltip title={r.status==='locked'?'إلغاء القفل':'قفل'}>
-            <Button size="small" danger={r.status!=='locked'} icon={r.status==='locked'?<UnlockOutlined/>:<LockOutlined/>}
-              onClick={()=>{ r.status = r.status==='locked'?'active':'locked'; setRev(x=>x+1); }} />
-          </Tooltip>
-        </Space>
-    },
-  ];
-
-  const logColumns = [
-    { title:'المستخدم', key:'user', render:(_:any,r:ActivityLog)=>{const u=USERS.find(x=>x.id===r.userId); return <Text style={{fontSize:12}}>{u?.name||r.userId}</Text>;} },
-    { title:'الإجراء', dataIndex:'action', key:'action', render:(v:string)=><Text style={{fontSize:12}}>{v}</Text> },
-    { title:'الوحدة', dataIndex:'module', key:'module', render:(v:string)=><Tag style={{fontSize:10}}>{v}</Tag> },
-    { title:'الوقت', dataIndex:'timestamp', key:'ts', render:(v:string)=><Text style={{fontSize:11}}>{v}</Text> },
-    { title:'الإيبي', dataIndex:'ip', key:'ip', render:(v:string)=><Text code style={{fontSize:10}}>{v}</Text> },
-    { title:'النتيجة', dataIndex:'status', key:'status', render:(v:string)=>
-        <Tag color={v==='success'?'green':v==='failed'?'red':'orange'}>{v==='success'?'نجاح':v==='failed'?'فشل':'تحذير'}</Tag>
-    },
-  ];
-
-  const mainTabs = [
-    {
-      key: 'users',
-      label: <Space><TeamOutlined />المستخدمون</Space>,
-      children: (
-        <Card bordered={false} style={{borderRadius:12, boxShadow:'0 2px 8px rgba(0,0,0,0.07)'}}>
-          <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:14 }}>
-            <Select placeholder="فلتر: الحالة" allowClear style={{minWidth:130}} onChange={v=>setFilterStatus(v||'')}>
-              {Object.entries(STATUS_MAP).map(([k,v])=><Option key={k} value={k}>{v.label}</Option>)}
-            </Select>
-            <Select placeholder="فلتر: الدور" allowClear style={{minWidth:130}} onChange={v=>setFilterRole(v||'')}>
-              {ROLES.map(r=><Option key={r.id} value={r.id}>{r.nameAr}</Option>)}
-            </Select>
-            <Select placeholder="فلتر: القسم" allowClear style={{minWidth:140}} onChange={v=>setFilterDept(v||'')}>
-              {depts.map(d=><Option key={d} value={d}>{d}</Option>)}
-            </Select>
-            <Text type="secondary" style={{lineHeight:'32px',fontSize:12,marginRight:'auto'}}>{filtered.length} من {USERS.length} مستخدم</Text>
-          </div>
-          <Table dataSource={filtered} rowKey="id" columns={userColumns} size="small"
-            scroll={{x:true}} pagination={{pageSize:8}}
-            onRow={r=>({onClick:()=>{setSelUser(r);setDrawerOpen(true);}, style:{cursor:'pointer'}})} />
-        </Card>
-      ),
-    },
-    {
-      key: 'roles',
-      label: <Space><SafetyCertificateOutlined />الأدوار والصلاحيات</Space>,
-      children: (
-        <div>
-          <Row gutter={[14,14]}>
-            {ROLES.map(r=>(
-              <Col key={r.id} xs={24} md={12} lg={8}>
-                <RoleCard role={r} onClick={()=>{setSelRole(r);setRoleModalOpen(true);}} />
-              </Col>
-            ))}
-          </Row>
-          <Divider />
-          <Alert
-            message="مصفوفة الصلاحيات الكاملة"
-            description={
-              <Table size="small"
-                dataSource={MODULES.map(m=>({ module:m, ...Object.fromEntries(ROLES.map(r=>{ const p=r.permissions.find(p=>p.module===m); return [r.id, p?[p.view&&'ع',p.create&&'إ',p.edit&&'ت',p.delete&&'ح'].filter(Boolean).join('/'):'-']; })) }))}
-                rowKey="module" pagination={false}
-                columns={[
-                  { title:'الوحدة', dataIndex:'module', key:'module', render:(v:string)=><Text style={{fontSize:11}}>{v}</Text> },
-                  ...ROLES.map(r=>({ title:<Tag color={r.color} style={{fontSize:9}}>{r.nameAr}</Tag>, dataIndex:r.id, key:r.id, width:80, render:(v:string)=><Text style={{fontSize:10,fontFamily:'monospace'}}>{v}</Text> }))
-                ]}
-              />
-            }
-            type="info" style={{marginTop:14}}
-          />
-        </div>
-      ),
-    },
-    {
-      key: 'activity',
-      label: <Space><HistoryOutlined />سجل النشاط</Space>,
-      children: (
-        <Card bordered={false} style={{borderRadius:12, boxShadow:'0 2px 8px rgba(0,0,0,0.07)'}}>
-          <Row gutter={[14,14]} style={{marginBottom:14}}>
-            <Col xs={24} md={8}>
-              <Card size="small" bordered={false} style={{borderRadius:10, background:'#f9fafb'}}>
-                <div style={{textAlign:'center', padding:'8px 0'}}>
-                  <ReactApexChart type="radialBar" series={[Math.round(logSuccess/ACTIVITY_LOGS.length*100)]} options={activityOpts} height={160} />
-                  <Row gutter={4} justify="center">
-                    {[{label:'نجاح',v:logSuccess,c:'green'},{label:'فشل',v:logFailed,c:'red'},{label:'تحذير',v:logWarn,c:'orange'}].map((s,i)=>(
-                      <Col key={i}><Tag color={s.c} style={{fontSize:10}}>{s.label}: {s.v}</Tag></Col>
-                    ))}
-                  </Row>
-                </div>
-              </Card>
-            </Col>
-            <Col xs={24} md={16}>
-              <Table dataSource={ACTIVITY_LOGS} rowKey="id" columns={logColumns} size="small"
-                scroll={{x:true}} pagination={{pageSize:6}} />
-            </Col>
-          </Row>
-        </Card>
-      ),
-    },
-  ];
-
-  return (
-    <div style={{ padding:20, direction:'rtl', fontFamily:'Tajawal,sans-serif', minHeight:'100vh', background:'#f5f7fa' }}>
-      {/* Header */}
-      <div style={{ marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10 }}>
-        <div>
-          <Title level={3} style={{ margin:0, color:PRIMARY }}><TeamOutlined /> إدارة المستخدمين والصلاحيات</Title>
-          <Text type="secondary">متابعة حسابات المستخدمين وأدوارهم وسجلات الدخول</Text>
-        </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={()=>setAddOpen(true)} style={{background:PRIMARY}}>
-          إضافة مستخدم
-        </Button>
-      </div>
-
-      {/* Stat Cards */}
-      <Row gutter={[12,12]} style={{ marginBottom:20 }}>
+    <div>
+      <SessionsModal open={!!sessionsUser} onClose={() => setSessionsUser(null)} userId={sessionsUser?.id} userName={sessionsUser?.nameAr ?? sessionsUser?.nameEn ?? sessionsUser?.email} />
+      <Row gutter={[12, 12]} style={{ marginBottom: 14 }}>
         {[
-          { label:'إجمالي المستخدمين', value:USERS.length, icon:<TeamOutlined/>, color:PRIMARY },
-          { label:'نشط', value:active, icon:<CheckCircleOutlined/>, color:'#52c41a' },
-          { label:'غير نشط', value:inactive, icon:<ClockCircleOutlined/>, color:'#999' },
-          { label:'مقفل', value:locked, icon:<LockOutlined/>, color:'#ff4d4f' },
-          { label:'قيد التفعيل', value:pending, icon:<ClockCircleOutlined/>, color:'#fa8c16' },
-          { label:'مديرون', value:admins, icon:<SafetyOutlined/>, color:'#722ed1' },
-          { label:'2FA مفعل', value:with2FA, icon:<SafetyCertificateOutlined/>, color:'#13c2c2' },
-          { label:'عدد الأدوار', value:ROLES.length, icon:<KeyOutlined/>, color:GOLD },
-        ].map((s,i)=>(
-          <Col key={i} xs={12} sm={6} md={3}>
-            <Card size="small" bordered={false} style={{borderRadius:12, textAlign:'center', background:'#fff', boxShadow:'0 2px 8px rgba(0,0,0,0.07)'}}>
-              <div style={{fontSize:22, color:s.color}}>{s.icon}</div>
-              <div style={{fontSize:22, fontWeight:700, color:s.color}}>{s.value}</div>
-              <div style={{fontSize:10, color:'#888'}}>{s.label}</div>
+          { label: 'إجمالي المستخدمين', value: rows.length, color: PRIMARY, bg: '#e8f5e9', icon: <TeamOutlined /> },
+          { label: 'نشط', value: active, color: '#52c41a', bg: '#f6ffed', icon: <CheckCircleOutlined /> },
+          { label: 'موقوف', value: rows.length - active, color: '#ff4d4f', bg: '#fff1f0', icon: <CloseCircleOutlined /> },
+          { label: 'مدراء النظام', value: admins, color: '#d48806', bg: '#fffbe6', icon: <CrownOutlined /> },
+          { label: 'لم يسجلوا الدخول', value: neverLogged, color: '#1677ff', bg: '#e6f4ff', icon: <LockOutlined /> },
+        ].map(s => (
+          <Col xs={12} md={8} xl={4} key={s.label} flex="1">
+            <Card size="small" bordered={false} style={{ borderRadius: 10, background: s.bg }}>
+              <Space><span style={{ fontSize: 20, color: s.color }}>{s.icon}</span>
+                <div><div style={{ fontSize: 20, fontWeight: 700, color: s.color }}>{s.value}</div><div style={{ fontSize: 11, color: '#666' }}>{s.label}</div></div></Space>
             </Card>
           </Col>
         ))}
       </Row>
 
-      {/* Charts Row 1 */}
-      <Row gutter={[14,14]} style={{marginBottom:14}}>
-        <Col xs={24} md={6}>
-          <Card size="small" bordered={false} style={{borderRadius:12, boxShadow:'0 2px 8px rgba(0,0,0,0.07)'}} title={<Text style={{fontSize:12,fontWeight:600}}>توزيع الأدوار</Text>}>
-            <ReactApexChart type="donut" series={roleChartSeries} options={roleChartOpts} height={220} />
-          </Card>
-        </Col>
-        <Col xs={24} md={6}>
-          <Card size="small" bordered={false} style={{borderRadius:12, boxShadow:'0 2px 8px rgba(0,0,0,0.07)'}} title={<Text style={{fontSize:12,fontWeight:600}}>حالة المستخدمين</Text>}>
-            <ReactApexChart type="donut" series={statusSeries} options={statusOpts} height={220} />
-          </Card>
-        </Col>
-        <Col xs={24} md={8}>
-          <Card size="small" bordered={false} style={{borderRadius:12, boxShadow:'0 2px 8px rgba(0,0,0,0.07)'}} title={<Text style={{fontSize:12,fontWeight:600}}>عدد جلسات الدخول (أكثر نشاطاً)</Text>}>
-            <ReactApexChart type="bar" series={[{name:'جلسات',data:topUsers.map(u=>u.loginCount)}]} options={loginBarOpts} height={220} />
-          </Card>
-        </Col>
-        <Col xs={24} md={4}>
-          <Card size="small" bordered={false} style={{borderRadius:12, boxShadow:'0 2px 8px rgba(0,0,0,0.07)'}} title={<Text style={{fontSize:12,fontWeight:600}}>نسبة 2FA</Text>}>
-            <ReactApexChart type="radialBar" series={[twoFAPct]} options={twoFAOpts} height={180} />
-            <div style={{textAlign:'center',marginTop:4}}>
-              <Text style={{fontSize:11}}>{with2FA} / {USERS.length} مستخدم</Text>
-            </div>
-            {twoFAPct < 70 && <Alert message="يُنصح تفعيل 2FA لجميع المستخدمين" type="warning" showIcon style={{fontSize:10,marginTop:6}} />}
-          </Card>
-        </Col>
-      </Row>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+        <Space wrap>
+          <Input.Search allowClear placeholder="بحث بالاسم أو البريد…" style={{ width: 240 }} onSearch={v => setF(x => ({ ...x, search: v || undefined }))} />
+          <Select allowClear placeholder="الدور" style={{ width: 160 }} value={f.roleId} onChange={v => setF(x => ({ ...x, roleId: v }))}
+            options={roles.map(r => ({ value: r.id, label: roleName(r) }))} />
+          <Select allowClear placeholder="الفرع" style={{ width: 160 }} value={f.branchId} onChange={v => setF(x => ({ ...x, branchId: v }))}
+            options={branches.map(b => ({ value: b.id, label: locName(b, true) || b.code }))} />
+          <Select allowClear placeholder="الحالة" style={{ width: 120 }} value={f.active} onChange={v => setF(x => ({ ...x, active: v }))}
+            options={[{ value: true, label: 'نشط' }, { value: false, label: 'موقوف' }]} />
+          <Button icon={<ReloadOutlined />} onClick={load} />
+        </Space>
+        {canManage && <Button type="primary" icon={<PlusOutlined />} onClick={openNew}>مستخدم جديد</Button>}
+      </div>
 
-      {/* Charts Row 2 */}
-      <Row gutter={[14,14]} style={{marginBottom:20}}>
-        <Col xs={24} md={10}>
-          <Card size="small" bordered={false} style={{borderRadius:12, boxShadow:'0 2px 8px rgba(0,0,0,0.07)'}} title={<Text style={{fontSize:12,fontWeight:600}}>المستخدمون حسب القسم</Text>}>
-            <ReactApexChart type="bar" series={[{name:'مستخدمين',data:Object.values(deptMap)}]} options={deptBarOpts} height={200} />
-          </Card>
-        </Col>
-        <Col xs={24} md={14}>
-          <Card size="small" bordered={false} style={{borderRadius:12, boxShadow:'0 2px 8px rgba(0,0,0,0.07)'}} title={<Text style={{fontSize:12,fontWeight:600}}>آخر نشاطات النظام</Text>}>
-            <Timeline mode="right" style={{maxHeight:200,overflowY:'auto'}}
-              items={ACTIVITY_LOGS.slice(0,7).map(l=>{
-                const u=USERS.find(x=>x.id===l.userId);
-                return {
-                  color: l.status==='success'?'green':l.status==='failed'?'red':'orange',
-                  label: <Text style={{fontSize:10}}>{l.timestamp.split(' ')[1]}</Text>,
-                  children: <Space size={4}><Text style={{fontSize:11,fontWeight:600}}>{u?.name.split(' ')[0]}</Text><Tag style={{fontSize:9}}>{l.action}</Tag><Tag color={l.status==='success'?'green':'red'} style={{fontSize:9}}>{l.status==='success'?'نجاح':'فشل'}</Tag></Space>,
-                };
-              })}
-            />
-          </Card>
-        </Col>
-      </Row>
+      <Table<UserRow> size="small" rowKey="id" loading={loading} dataSource={rows} scroll={{ x: 1000 }}
+        pagination={{ pageSize: 20, hideOnSinglePage: true }} locale={{ emptyText: <Empty description="لا يوجد مستخدمون" /> }}
+        columns={[
+          { title: 'المستخدم', key: 'u', render: (_, u) => (
+            <Space>
+              <Avatar style={{ background: u.isActive ? PRIMARY : '#bfbfbf' }} icon={<UserOutlined />}>{(u.nameAr || u.nameEn || u.email)[0]}</Avatar>
+              <div>
+                <Text strong style={{ fontSize: 13 }}>{u.nameAr || u.nameEn || '—'}</Text>
+                {u.id === me?.id && <Tag color="gold" style={{ marginInlineStart: 6, fontSize: 10 }}>أنت</Tag>}
+                <div style={{ fontSize: 11, color: '#888', direction: 'ltr', textAlign: 'end' }}>{u.email}</div>
+              </div>
+            </Space>) },
+          { title: 'الهاتف', dataIndex: 'phone', width: 130, render: v => v ? <span style={{ direction: 'ltr', display: 'inline-block' }}>{v}</span> : '—' },
+          { title: 'الأدوار', key: 'roles', render: (_, u) => u.roles.length === 0 ? <Text type="secondary">بدون دور</Text>
+            : u.roles.map(r => <Tag key={r.roleId} color={roleColor[r.roleId]} style={{ marginBottom: 2 }}>{roleName(r)}</Tag>) },
+          { title: 'الفرع / الفروع', key: 'br', render: (_, u) => (
+            <div style={{ fontSize: 12 }}>
+              {u.branch ?? <Text type="secondary">—</Text>}
+              {u.branches.length > 0 && <div>{u.branches.map(b => <Tag key={b.branchId} style={{ fontSize: 10 }}>{b.code}</Tag>)}</div>}
+            </div>) },
+          { title: 'آخر دخول', dataIndex: 'lastLoginAt', width: 140, render: v => v ? <div style={{ fontSize: 12 }}>{dayjs(v).format('YYYY-MM-DD HH:mm')}</div> : <Text type="secondary" style={{ fontSize: 12 }}>لم يسجل الدخول</Text> },
+          { title: 'الحالة', key: 'st', width: 110, render: (_, u) => canManage && u.id !== me?.id
+            ? <Switch size="small" checked={u.isActive} onChange={c => toggleActive(u, c)} checkedChildren="نشط" unCheckedChildren="موقوف" />
+            : <Badge status={u.isActive ? 'success' : 'default'} text={u.isActive ? 'نشط' : 'موقوف'} /> },
+          ...(canManage ? [{ title: '', key: 'a', width: 150, render: (_: unknown, u: UserRow) => (
+            <Space size={2}>
+              <Tooltip title="تعديل"><Button size="small" type="text" icon={<EditOutlined />} onClick={() => openEdit(u)} /></Tooltip>
+              <Tooltip title="تغيير كلمة المرور"><Button size="small" type="text" icon={<KeyOutlined />} onClick={() => { pwdForm.resetFields(); setPwdUser(u); }} /></Tooltip>
+              <Tooltip title="الأجهزة والجلسات النشطة"><Button size="small" type="text" icon={<LaptopOutlined />} onClick={() => setSessionsUser(u)} /></Tooltip>
+              {u.id !== me?.id && (
+                <Popconfirm title="حذف المستخدم؟" description="لن يتمكن من تسجيل الدخول، ويبقى سجله محفوظاً." okText="حذف" cancelText="إلغاء" onConfirm={() => remove(u)}>
+                  <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                </Popconfirm>
+              )}
+            </Space>) }] : []),
+        ]} />
 
-      {/* Main Tabs */}
-      <Tabs activeKey={activeTab} onChange={setActiveTab} items={mainTabs} />
+      <Modal open={editing != null} title={editing === 'new' ? 'مستخدم جديد' : 'تعديل المستخدم'} okText="حفظ" cancelText="إلغاء" onOk={save}
+        confirmLoading={saving} onCancel={() => setEditing(null)} destroyOnClose width={640}>
+        <Form form={form} layout="vertical">
+          <Row gutter={12}>
+            <Col span={12}><Form.Item name="nameAr" label="الاسم بالعربية" rules={[{ required: true, message: 'مطلوب' }]}><Input /></Form.Item></Col>
+            <Col span={12}><Form.Item name="nameEn" label="الاسم بالإنجليزية"><Input dir="ltr" /></Form.Item></Col>
+            <Col span={12}><Form.Item name="email" label="البريد الإلكتروني (اسم الدخول)" rules={[{ required: true, message: 'مطلوب' }, { type: 'email', message: 'بريد غير صحيح' }]}><Input dir="ltr" /></Form.Item></Col>
+            <Col span={12}><Form.Item name="phone" label="الهاتف"><Input dir="ltr" /></Form.Item></Col>
+            {editing === 'new' && (
+              <Col span={12}><Form.Item name="password" label="كلمة المرور" rules={[{ required: true, message: 'مطلوب' }, PASSWORD_RULE]}><Input.Password dir="ltr" /></Form.Item></Col>
+            )}
+            <Col span={12}><Form.Item name="branchId" label="الفرع الرئيسي"><Select allowClear options={branches.map(b => ({ value: b.id, label: locName(b, true) || b.code }))} /></Form.Item></Col>
+            <Col span={24}><Form.Item name="branchIds" label="الفروع المسموح بها" extra="بدون اختيار = كل الفروع">
+              <Select mode="multiple" allowClear options={branches.map(b => ({ value: b.id, label: locName(b, true) || b.code }))} /></Form.Item></Col>
+            <Col span={24}><Form.Item name="roleIds" label="الأدوار" rules={[{ required: true, message: 'اختر دوراً واحداً على الأقل' }]}>
+              <Select mode="multiple" options={roles.map(r => ({ value: r.id, label: `${roleName(r)} (${r.code})` }))} /></Form.Item></Col>
+            <Col span={12}><Form.Item name="isActive" label="نشط" valuePropName="checked"><Switch disabled={editing !== 'new' && editing?.id === me?.id} /></Form.Item></Col>
+          </Row>
+        </Form>
+      </Modal>
 
-      {/* Add User Modal */}
-      <Modal open={addOpen} title={<Space><PlusOutlined />إضافة مستخدم جديد</Space>}
-        onCancel={()=>{setAddOpen(false);addForm.resetFields();}}
-        onOk={()=>addForm.validateFields().then(vals=>{
-          USERS.push({ id:'U'+Date.now(), name:vals.name, email:vals.email, phone:vals.phone||'',
-            department:vals.department, position:vals.position||'', roleIds:vals.roleIds||['R05'],
-            status:'pending', createdAt:new Date().toISOString().slice(0,10), twoFA:false, loginCount:0 });
-          setRev(r=>r+1); setAddOpen(false); addForm.resetFields();
-        })}
-        width={560} okText="حفظ" cancelText="إلغاء"
-      >
-        <Form form={addForm} layout="vertical">
-          <Row gutter={12}>
-            <Col span={14}><Form.Item name="name" label="الاسم الكامل" rules={[{required:true}]}><Input /></Form.Item></Col>
-            <Col span={10}><Form.Item name="position" label="المسمى الوظيفي"><Input /></Form.Item></Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={14}><Form.Item name="email" label="البريد الإلكتروني" rules={[{required:true,type:'email'}]}><Input /></Form.Item></Col>
-            <Col span={10}><Form.Item name="phone" label="رقم الهاتف"><Input /></Form.Item></Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={12}><Form.Item name="department" label="القسم" rules={[{required:true}]}>
-              <Select>{depts.map(d=><Option key={d} value={d}>{d}</Option>)}<Option value="قسم جديد">قسم جديد</Option></Select>
-            </Form.Item></Col>
-            <Col span={12}><Form.Item name="roleIds" label="الأدوار" rules={[{required:true}]}>
-              <Select mode="multiple">{ROLES.map(r=><Option key={r.id} value={r.id}><Tag color={r.color} style={{fontSize:10}}>{r.nameAr}</Tag></Option>)}</Select>
-            </Form.Item></Col>
-          </Row>
-          <Form.Item name="twoFA" label="" valuePropName="checked" initialValue={false}>
-            <Space><Switch /><Text style={{fontSize:12}}>تفعيل المصادقة الثنائية (2FA)</Text></Space>
+      <Modal open={!!pwdUser} title={`تغيير كلمة المرور — ${pwdUser?.nameAr || pwdUser?.email || ''}`} okText="حفظ" cancelText="إلغاء" onOk={resetPassword}
+        confirmLoading={saving} onCancel={() => setPwdUser(null)} destroyOnClose>
+        <Form form={pwdForm} layout="vertical">
+          <Form.Item name="newPassword" label="كلمة المرور الجديدة" rules={[{ required: true, message: 'مطلوب' }, PASSWORD_RULE]}><Input.Password dir="ltr" /></Form.Item>
+          <Form.Item name="confirm" label="تأكيد كلمة المرور" dependencies={['newPassword']}
+            rules={[{ required: true, message: 'مطلوب' }, ({ getFieldValue }) => ({ validator: (_, v) => (!v || v === getFieldValue('newPassword') ? Promise.resolve() : Promise.reject(new Error('كلمتا المرور غير متطابقتين'))) })]}>
+            <Input.Password dir="ltr" />
           </Form.Item>
         </Form>
       </Modal>
+    </div>
+  );
+}
 
-      {/* Edit User Modal */}
-      <Modal open={editOpen} title={<Space><EditOutlined />تعديل بيانات المستخدم</Space>}
-        onCancel={()=>{setEditOpen(false);editForm.resetFields();}}
-        onOk={()=>editForm.validateFields().then(vals=>{
-          if(selUser){ Object.assign(selUser, vals); setRev(r=>r+1); setEditOpen(false); editForm.resetFields(); }
-        })}
-        width={560} okText="حفظ" cancelText="إلغاء"
-      >
-        <Form form={editForm} layout="vertical">
-          <Row gutter={12}>
-            <Col span={14}><Form.Item name="name" label="الاسم" rules={[{required:true}]}><Input /></Form.Item></Col>
-            <Col span={10}><Form.Item name="position" label="المسمى"><Input /></Form.Item></Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={12}><Form.Item name="department" label="القسم">
-              <Select>{depts.map(d=><Option key={d} value={d}>{d}</Option>)}</Select>
-            </Form.Item></Col>
-            <Col span={12}><Form.Item name="roleIds" label="الأدوار">
-              <Select mode="multiple">{ROLES.map(r=><Option key={r.id} value={r.id}><Tag color={r.color} style={{fontSize:10}}>{r.nameAr}</Tag></Option>)}</Select>
-            </Form.Item></Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={12}><Form.Item name="status" label="الحالة">
-              <Select>{Object.entries(STATUS_MAP).map(([k,v])=><Option key={k} value={k}>{v.label}</Option>)}</Select>
-            </Form.Item></Col>
-            <Col span={12}><Form.Item name="twoFA" label="" valuePropName="checked">
-              <Space style={{marginTop:22}}><Switch /><Text style={{fontSize:12}}>2FA</Text></Space>
-            </Form.Item></Col>
-          </Row>
-        </Form>
-      </Modal>
+// ═════════════════════════════ roles & permissions ═════════════════════════════
+function RolesTab({ roles, reload, canManage }: { roles: RoleRow[]; reload: () => void; canManage: boolean }) {
+  const [groups, setGroups] = useState<PermGroup[]>([]);
+  const [selected, setSelected] = useState<RoleRow | 'new' | null>(null);
+  const [perms, setPerms] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [form] = Form.useForm();
 
-      {/* Role Detail Modal */}
-      <RoleDetailModal role={selRole} open={roleModalOpen} onClose={()=>setRoleModalOpen(false)} />
+  useEffect(() => { api<PermGroup[]>('/permissions').then(setGroups).catch(e => message.error(errorMessage(e))); }, []);
+  useEffect(() => { if (!selected && roles.length) pick(roles[0]); }, [roles]); // eslint-disable-line react-hooks/exhaustive-deps
 
-      {/* User Drawer */}
-      <UserDrawer user={selUser} open={drawerOpen} onClose={()=>setDrawerOpen(false)}
-        onEdit={u=>{setDrawerOpen(false); editForm.setFieldsValue({...u,roleIds:u.roleIds}); setSelUser(u); setEditOpen(true);}} />
+  const pick = (r: RoleRow | 'new') => {
+    setSelected(r);
+    form.resetFields();
+    if (r === 'new') { form.setFieldsValue({ code: '', nameAr: '', nameEn: '' }); setPerms(new Set(['dashboard.view'])); }
+    else { form.setFieldsValue({ code: r.code, nameAr: r.nameAr, nameEn: r.nameEn }); setPerms(new Set(r.permissions)); }
+  };
+
+  const isAdminRole = selected !== 'new' && selected?.code === 'ADMIN';
+  const toggle = (code: string, on: boolean) => setPerms(p => { const n = new Set(p); if (on) n.add(code); else n.delete(code); return n; });
+  const moduleLabel = (g: PermGroup) => (g.permissions.find(p => p.code.endsWith('.view'))?.nameAr ?? g.module).replace(/^عرض\s*/, '');
+
+  const save = async () => {
+    const v = await form.validateFields();
+    setSaving(true);
+    try {
+      const payload = { code: v.code, nameAr: v.nameAr || null, nameEn: v.nameEn || null, permissions: [...perms] };
+      if (selected === 'new') { await api('/roles', { method: 'POST', body: payload }); message.success('تم إنشاء الدور'); }
+      else if (selected) { await api(`/roles/${selected.id}`, { method: 'PUT', body: payload }); message.success('تم حفظ الصلاحيات'); }
+      setSelected(null); reload();
+    } catch (e) { message.error(errorMessage(e), 6); } finally { setSaving(false); }
+  };
+  const remove = async (r: RoleRow) => {
+    try { await api(`/roles/${r.id}`, { method: 'DELETE' }); message.success('تم حذف الدور'); setSelected(null); reload(); } catch (e) { message.error(errorMessage(e), 6); }
+  };
+
+  const matrix = groups.map(g => {
+    const view = g.permissions.find(p => p.code === `${g.module}.view`);
+    const manage = g.permissions.find(p => p.code === `${g.module}.manage`);
+    const special = g.permissions.filter(p => p !== view && p !== manage);
+    return { key: g.module, label: moduleLabel(g), view, manage, special, all: g.permissions.map(p => p.code) };
+  });
+  const editable = canManage && !isAdminRole;
+
+  return (
+    <Row gutter={[16, 16]}>
+      <Col xs={24} lg={7}>
+        <Card size="small" bordered={false} style={{ borderRadius: 10 }} title={<Text strong><SafetyCertificateOutlined style={{ color: PRIMARY, marginInlineEnd: 6 }} />الأدوار ({roles.length})</Text>}
+          extra={canManage && <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => pick('new')}>دور جديد</Button>}>
+          {roles.map((r, i) => {
+            const on = selected !== 'new' && selected?.id === r.id;
+            return (
+              <div key={r.id} onClick={() => pick(r)} style={{ cursor: 'pointer', padding: '10px 12px', borderRadius: 8, marginBottom: 6,
+                border: on ? `2px solid ${PRIMARY}` : '1px solid #f0f0f0', background: on ? '#f0f7f2' : '#fff' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Space><span style={{ width: 10, height: 10, borderRadius: 5, background: r.code === 'ADMIN' ? '#ff4d4f' : ROLE_COLORS[(i + 1) % ROLE_COLORS.length], display: 'inline-block' }} />
+                    <Text strong>{roleName(r)}</Text></Space>
+                  <Tag style={{ fontFamily: 'monospace', fontSize: 10 }}>{r.code}</Tag>
+                </div>
+                <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>{r.users} مستخدم · {r.code === 'ADMIN' ? 'كل الصلاحيات' : `${r.permissions.length} صلاحية`}</div>
+              </div>
+            );
+          })}
+        </Card>
+      </Col>
+      <Col xs={24} lg={17}>
+        {!selected ? <Card bordered={false} style={{ borderRadius: 10 }}><Empty description="اختر دوراً لعرض صلاحياته" /></Card> : (
+          <Card size="small" bordered={false} style={{ borderRadius: 10 }}
+            title={<Text strong>{selected === 'new' ? 'دور جديد' : `صلاحيات: ${roleName(selected)}`}</Text>}
+            extra={<Space>
+              {canManage && selected !== 'new' && !isAdminRole && (
+                <Popconfirm title="حذف الدور؟" okText="حذف" cancelText="إلغاء" onConfirm={() => remove(selected)}>
+                  <Button size="small" danger icon={<DeleteOutlined />} disabled={selected.users > 0}>حذف</Button>
+                </Popconfirm>
+              )}
+              {canManage && <Button size="small" type="primary" icon={<SaveOutlined />} loading={saving} onClick={save}>حفظ</Button>}
+            </Space>}>
+            {isAdminRole && <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="دور مدير النظام (ADMIN) يملك كل الصلاحيات دائماً ولا يمكن تقييده أو حذفه." />}
+            <Form form={form} layout="vertical" disabled={!canManage}>
+              <Row gutter={12}>
+                <Col span={8}><Form.Item name="code" label="الرمز" rules={[{ required: true, message: 'مطلوب' }, { pattern: /^[A-Za-z0-9_]+$/, message: 'حروف إنجليزية وأرقام فقط' }]}>
+                  <Input dir="ltr" disabled={isAdminRole} style={{ textTransform: 'uppercase' }} /></Form.Item></Col>
+                <Col span={8}><Form.Item name="nameAr" label="الاسم بالعربية" rules={[{ required: true, message: 'مطلوب' }]}><Input /></Form.Item></Col>
+                <Col span={8}><Form.Item name="nameEn" label="الاسم بالإنجليزية"><Input dir="ltr" /></Form.Item></Col>
+              </Row>
+            </Form>
+            {groups.length === 0 ? <Spin /> : (
+              <Table size="small" rowKey="key" pagination={false} dataSource={matrix} scroll={{ x: 640 }}
+                columns={[
+                  { title: 'الوحدة', dataIndex: 'label', render: (v, m) => (
+                    <Space>
+                      <Checkbox disabled={!editable} checked={isAdminRole || m.all.every(c => perms.has(c))}
+                        indeterminate={!isAdminRole && m.all.some(c => perms.has(c)) && !m.all.every(c => perms.has(c))}
+                        onChange={e => setPerms(p => { const n = new Set(p); m.all.forEach(c => (e.target.checked ? n.add(c) : n.delete(c))); return n; })} />
+                      <Text style={{ fontSize: 13 }}>{v}</Text>
+                    </Space>) },
+                  { title: 'عرض', key: 'v', width: 70, align: 'center' as const, render: (_, m) => m.view &&
+                    <Checkbox disabled={!editable} checked={isAdminRole || perms.has(m.view.code)} onChange={e => toggle(m.view!.code, e.target.checked)} /> },
+                  { title: 'إدارة (إضافة / تعديل / حذف)', key: 'm', width: 170, align: 'center' as const, render: (_, m) => m.manage &&
+                    <Checkbox disabled={!editable} checked={isAdminRole || perms.has(m.manage.code)}
+                      onChange={e => { toggle(m.manage!.code, e.target.checked); if (e.target.checked && m.view) toggle(m.view.code, true); }} /> },
+                  { title: 'صلاحيات خاصة', key: 's', render: (_, m) => (
+                    <Space wrap size={[8, 4]}>
+                      {m.special.map(p => (
+                        <Checkbox key={p.code} disabled={!editable} checked={isAdminRole || perms.has(p.code)} onChange={e => toggle(p.code, e.target.checked)}>
+                          <span style={{ fontSize: 12 }}>{p.nameAr || p.nameEn || p.code}</span>
+                        </Checkbox>
+                      ))}
+                    </Space>) },
+                ]} />
+            )}
+          </Card>
+        )}
+      </Col>
+    </Row>
+  );
+}
+
+// ═════════════════════════════ page ═════════════════════════════
+const UsersPage: React.FC = () => {
+  const { can } = useAuth();
+  const canManage = can('users.manage');
+  const [roles, setRoles] = useState<RoleRow[]>([]);
+  const [tab, setTab] = useState('users');
+  const loadRoles = useCallback(() => { api<RoleRow[]>('/roles').then(setRoles).catch(e => message.error(errorMessage(e))); }, []);
+  useEffect(() => { loadRoles(); }, [loadRoles]);
+
+  if (!can('users.view')) return <Card style={{ borderRadius: 14 }}><Empty description="ليست لديك صلاحية عرض المستخدمين" /></Card>;
+  return (
+    <div>
+      <div style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, ${DARK} 100%)`, borderBottom: `3px solid ${GOLD}`, borderRadius: 14, padding: '16px 20px', marginBottom: 14,
+        display: 'flex', alignItems: 'center', gap: 14 }}>
+        <span style={{ width: 46, height: 46, borderRadius: 12, background: 'rgba(201,168,76,.18)', color: GOLD, fontSize: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><TeamOutlined /></span>
+        <div>
+          <div style={{ color: '#fff', fontWeight: 700, fontSize: 18 }}>المستخدمون والصلاحيات</div>
+          <div style={{ color: 'rgba(255,255,255,.7)', fontSize: 12.5 }}>حسابات الدخول، الأدوار، وصلاحيات كل دور على وحدات النظام</div>
+        </div>
+      </div>
+      <Card styles={{ body: { padding: '4px 16px 16px' } }} style={{ borderRadius: 14 }}>
+        <Tabs activeKey={tab} onChange={setTab} items={[
+          { key: 'users', label: <span><UserOutlined /> المستخدمون</span>, children: <UsersTab roles={roles} canManage={canManage} /> },
+          { key: 'roles', label: <span><SafetyCertificateOutlined /> الأدوار والصلاحيات</span>, children: <RolesTab roles={roles} reload={loadRoles} canManage={canManage} /> },
+        ]} />
+      </Card>
     </div>
   );
 };

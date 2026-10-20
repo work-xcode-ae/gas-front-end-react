@@ -1,19 +1,19 @@
 import React, { useMemo } from 'react';
 import {
   Drawer, Tag, Typography, Row, Col, Divider,
-  Timeline, Badge, Progress, Button, Space,
-  Statistic, Tooltip, Alert
+  Timeline, Progress, Button, Space,
+  Tooltip, Alert
 } from 'antd';
 import {
   DashboardOutlined, HomeOutlined, UserOutlined,
   CalendarOutlined, ToolOutlined, BarcodeOutlined,
   WarningOutlined, CheckCircleOutlined, ThunderboltOutlined,
-  FireOutlined, ClockCircleOutlined, RiseOutlined,
+  ClockCircleOutlined, RiseOutlined,
   PrinterOutlined, EditOutlined, DisconnectOutlined, SafetyOutlined
 } from '@ant-design/icons';
 import ReactApexChart from 'react-apexcharts';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 const PRIMARY  = '#1a5c2a';
 const GOLD     = '#c9a84c';
 const DANGER   = '#ff4d4f';
@@ -32,7 +32,7 @@ function buildHistory(meter: MeterRecord) {
   const months = ['يون', 'يول', 'أغس', 'سبت', 'أكت', 'نوف'];
   const base   = meter.monthlyAvg || 120;
   let cumulative = meter.lastReadValue - base * 5;
-  return months.map((m, i) => {
+  return months.map((m) => {
     const usage = Math.round(base * (0.8 + Math.random() * 0.4));
     cumulative += usage;
     return { month: m, usage, cumulative: Math.max(0, cumulative) };
@@ -70,7 +70,7 @@ const MeterDetailDrawer: React.FC<MeterDetailDrawerProps> = ({ open, meter, onCl
   if (!meter) return null;
 
   const isFault        = meter.status === 'fault';
-  const isDisconnected = meter.status === 'disconnected';
+  
   const sc             = statusConfig[meter.status] ?? statusConfig.active;
   const isSmart        = meter.type === 'smart';
 

@@ -1,54 +1,45 @@
-import React from 'react';
-import { Tag } from 'antd';
-import { SettingOutlined } from '@ant-design/icons';
-import ModuleDashboard from '../../components/layout/ModuleDashboard';
+import React, { useState } from 'react';
+import { Card, Tabs } from 'antd';
+import { FileProtectOutlined, SettingOutlined, AppstoreOutlined, CheckSquareOutlined, AuditOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import TermsSettings from './TermsSettings';
+import LookupListSettings from './LookupListSettings';
+import AuditTrailSettings from './AuditTrailSettings';
+import SystemSettings from './SystemSettings';
+import { useAuth } from '../../auth/AuthContext';
+
+const PRIMARY = '#1a5c2a';
+const DARK = '#0b2e18';
+const GOLD = '#c9a84c';
 
 const SettingsPage: React.FC = () => {
   const { i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
-  const color = '#455a64';
+  const [tab, setTab] = useState('system');
+  const { can } = useAuth();
 
-  const kpis = [
-    { title: isRTL ? 'الإجمالي' : 'Total', value: 248, color, bg: color + '22', icon: <SettingOutlined /> },
-    { title: isRTL ? 'نشط' : 'Active', value: 201, color: '#1565c0', bg: '#e3f2fd', icon: <SettingOutlined /> },
-    { title: isRTL ? 'هذا الشهر' : 'This Month', value: 32, color: '#00695c', bg: '#e0f2f1', icon: <SettingOutlined /> },
-    { title: isRTL ? 'قيد المراجعة' : 'Pending Review', value: 15, color: '#c62828', bg: '#ffebee', icon: <SettingOutlined /> },
-  ];
-
-  const charts = [{
-    title: isRTL ? 'الإحصائيات الشهرية' : 'Monthly Statistics',
-    series: [{ name: isRTL ? 'الإجمالي' : 'Total', data: [42, 55, 61, 48, 70, 80] }],
-    options: {
-      chart: { type: 'area', toolbar: { show: false } }, colors: [color],
-      fill: { type: 'gradient', gradient: { opacityFrom: 0.4, opacityTo: 0.05 } },
-      stroke: { curve: 'smooth', width: 3 },
-      xaxis: { categories: isRTL ? ['نوفمبر','ديسمبر','يناير','فبراير','مارس','أبريل'] : ['Nov','Dec','Jan','Feb','Mar','Apr'] },
-      grid: { borderColor: '#f0f0f0' },
-    },
-    type: 'area',
-  }];
-
-  const columns = [
-    { title: isRTL ? 'الرقم' : 'No.', dataIndex: 'no', key: 'no' },
-    { title: isRTL ? 'الاسم' : 'Name', dataIndex: 'name', key: 'name' },
-    { title: isRTL ? 'التاريخ' : 'Date', dataIndex: 'date', key: 'date' },
-    { title: isRTL ? 'الحالة' : 'Status', dataIndex: 'status', key: 'status',
-      render: (v: string) => <Tag color={v === 'active' ? 'success' : v === 'pending' ? 'warning' : 'default'}>
-        {v === 'active' ? (isRTL ? 'نشط' : 'Active') : v === 'pending' ? (isRTL ? 'قيد المراجعة' : 'Pending') : (isRTL ? 'منتهي' : 'Expired')}
-      </Tag>
-    },
-  ];
-
-  const data = [
-    { key: 1, no: '001', name: isRTL ? 'السجل الأول' : 'Record One', date: '2025-04-16', status: 'active' },
-    { key: 2, no: '002', name: isRTL ? 'السجل الثاني' : 'Record Two', date: '2025-04-15', status: 'pending' },
-    { key: 3, no: '003', name: isRTL ? 'السجل الثالث' : 'Record Three', date: '2025-04-14', status: 'active' },
-    { key: 4, no: '004', name: isRTL ? 'السجل الرابع' : 'Record Four', date: '2025-04-13', status: 'expired' },
-    { key: 5, no: '005', name: isRTL ? 'السجل الخامس' : 'Record Five', date: '2025-04-12', status: 'active' },
-  ];
-
-  return <ModuleDashboard title={isRTL ? 'الإعدادات' : 'Settings'} icon={<SettingOutlined />} color={color} kpis={kpis} charts={charts} tables={[{ title: isRTL ? 'السجلات الأخيرة' : 'Recent Records', columns, data }]} />;
+  return (
+    <div>
+      <div style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, ${DARK} 100%)`, borderBottom: `3px solid ${GOLD}`, borderRadius: 14, padding: '16px 20px', marginBottom: 14,
+        display: 'flex', alignItems: 'center', gap: 14 }}>
+        <span style={{ width: 46, height: 46, borderRadius: 12, background: 'rgba(201,168,76,.18)', color: GOLD, fontSize: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><SettingOutlined /></span>
+        <div>
+          <div style={{ color: '#fff', fontWeight: 700, fontSize: 18 }}>{isRTL ? 'الإعدادات' : 'Settings'}</div>
+          <div style={{ color: 'rgba(255,255,255,.7)', fontSize: 12.5 }}>{isRTL ? 'الشركة والفروع والقوائم والقوالب المستخدمة في النظام' : 'System settings and contract templates'}</div>
+        </div>
+      </div>
+      <Card styles={{ body: { padding: '4px 16px 16px' } }} style={{ borderRadius: 14 }}>
+        <Tabs activeKey={tab} onChange={setTab} items={[
+          { key: 'system', label: <span><AppstoreOutlined /> {isRTL ? 'إعدادات النظام' : 'System'}</span>, children: <SystemSettings /> },
+          { key: 'terms', label: <span><FileProtectOutlined /> {isRTL ? 'الشروط والأحكام' : 'Terms & conditions'}</span>, children: <TermsSettings /> },
+          { key: 'checklist', label: <span><CheckSquareOutlined /> {isRTL ? 'قائمة الفحص' : 'Visit checklist'}</span>,
+            children: <LookupListSettings typeCode="VISIT_CHECKLIST" title={isRTL ? 'بنود قائمة فحص زيارات الصيانة' : 'Maintenance visit checklist'}
+              hint={isRTL ? 'تظهر هذه البنود عند تسجيل زيارة صيانة لعقد AMC' : 'Shown when recording an AMC maintenance visit'} /> },
+          ...(can('audit.view') ? [{ key: 'audit', label: <span><AuditOutlined /> {isRTL ? 'سجل التدقيق' : 'Audit trail'}</span>, children: <AuditTrailSettings /> }] : []),
+        ]} />
+      </Card>
+    </div>
+  );
 };
 
 export default SettingsPage;

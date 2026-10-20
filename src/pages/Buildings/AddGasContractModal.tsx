@@ -1,17 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import {
   Modal, Steps, Form, Input, Select, DatePicker, Button, Switch,
-  Row, Col, Divider, Tag, Table, InputNumber, Typography, Space,
+  Row, Col, Divider, Tag, InputNumber, Typography, Space,
   Alert, Checkbox, Tooltip,
 } from 'antd';
 import {
   FileTextOutlined, PlusOutlined, DeleteOutlined, CheckCircleOutlined,
-  InfoCircleOutlined, ArrowRightOutlined, ArrowLeftOutlined, DollarOutlined,
+  ArrowRightOutlined, ArrowLeftOutlined, 
   CalendarOutlined, HomeOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons';
-import dayjs, { Dayjs } from 'dayjs';
+import dayjs, {  } from 'dayjs';
 
-const { Text, Title, Paragraph } = Typography;
+const { Text, Title } = Typography;
 const { TextArea } = Input;
 const { Option } = Select;
 const PRIMARY = '#1a5c2a';
@@ -141,8 +141,8 @@ const AddGasContractModal: React.FC<Props> = ({
   const totalMonthly = fees.filter(f => f.cycle === 'monthly').reduce((s, f) => s + (f.amount || 0), 0);
   const totalYearly  = fees.filter(f => f.cycle === 'yearly').reduce((s, f) => s + (f.amount || 0), 0);
 
-  const selectedTenant = tenants.find(t => t.id === form.getFieldValue('tenantId'));
-  const selectedUnit   = buildingUnits.find(u => u.key === form.getFieldValue('unitKey'));
+  
+  
 
   return (
     <>
@@ -301,7 +301,7 @@ const AddGasContractModal: React.FC<Props> = ({
           {/* ── Step 3: Deposit + T&C ── */}
           {step === 3 && (
             <>
-              <Divider orientation="right" style={{ fontSize: 13 }}>الوديعة</Divider>
+              <Divider titlePlacement="right" style={{ fontSize: 13 }}>الوديعة</Divider>
               <Row gutter={12}>
                 <Col span={12}>
                   <Form.Item name="depositAmount" label="مبلغ الوديعة (د.إ)" rules={[{ required: true }]}>
@@ -315,7 +315,7 @@ const AddGasContractModal: React.FC<Props> = ({
                 </Col>
               </Row>
 
-              <Divider orientation="right" style={{ fontSize: 13 }}>الشروط والأحكام</Divider>
+              <Divider titlePlacement="right" style={{ fontSize: 13 }}>الشروط والأحكام</Divider>
               <Form.Item name="terms">
                 <TextArea rows={8} style={{ fontSize: 12, fontFamily: 'inherit', lineHeight: 1.8 }} />
               </Form.Item>

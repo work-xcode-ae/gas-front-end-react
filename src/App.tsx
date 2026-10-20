@@ -1,11 +1,13 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { ConfigProvider } from 'antd';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { ConfigProvider, Spin } from 'antd';
 import arEG from 'antd/locale/ar_EG';
 import enUS from 'antd/locale/en_US';
 import { useTranslation } from 'react-i18next';
 import './i18n';
 import AppLayout from './components/layout/AppLayout';
+import { AuthProvider, useAuth } from './auth/AuthContext';
+import LoginPage from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Buildings from './pages/Buildings';
 import ApartmentsPage from './pages/Apartments';
@@ -24,6 +26,16 @@ import SettingsPage from './pages/Settings';
 import VehiclesPage from './pages/Vehicles';
 import EmployeesPage from './pages/Employees';
 import AssetsPage from './pages/Assets';
+import AccountingPage from './pages/Accounting';
+
+/** Sends signed-out users to /login (and back to the page they wanted afterwards). */
+const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, initializing } = useAuth();
+  const location = useLocation();
+  if (initializing) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Spin size="large" /></div>;
+  if (!user) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
+  return <>{children}</>;
+};
 
 const AppContent: React.FC = () => {
   const { i18n } = useTranslation();
@@ -42,6 +54,11 @@ const AppContent: React.FC = () => {
       }}
     >
       <BrowserRouter>
+        <AuthProvider>
+        <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/*" element={
+        <RequireAuth>
         <AppLayout>
           <Routes>
             <Route path="/" element={<Dashboard />} />
@@ -62,8 +79,13 @@ const AppContent: React.FC = () => {
             <Route path="/vehicles" element={<VehiclesPage />} />
             <Route path="/employees" element={<EmployeesPage />} />
             <Route path="/assets" element={<AssetsPage />} />
+            <Route path="/accounting" element={<AccountingPage />} />
           </Routes>
         </AppLayout>
+        </RequireAuth>
+        } />
+        </Routes>
+        </AuthProvider>
       </BrowserRouter>
     </ConfigProvider>
   );

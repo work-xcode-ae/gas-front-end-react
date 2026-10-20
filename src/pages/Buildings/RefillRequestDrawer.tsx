@@ -1,22 +1,61 @@
-import React, { useState } from 'react';
+import dayjs from 'dayjs';
+import React, { useEffect, useState } from 'react';
+import { api, errorMessage } from '../../api/client';
 import {
   Drawer, Form, Input, InputNumber, Select, Button, Space, Typography,
-  Tag, Row, Col, Card, Switch, Descriptions, Modal, message, Tooltip,
+  Tag, Row, Col, Card, Switch, Descriptions, Modal, message, Tooltip, Steps, Alert,
 } from 'antd';
 import {
   FileTextOutlined, ShoppingOutlined, DollarOutlined, CarOutlined,
   FileProtectOutlined, CalendarOutlined, FireOutlined, SafetyCertificateOutlined,
-  CheckCircleOutlined, LockOutlined, CheckOutlined, ExclamationCircleOutlined,
+  LockOutlined, CheckOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons';
 
 const { Text, Title } = Typography;
 const { Option } = Select;
 const { TextArea } = Input;
 const PRIMARY = '#1a5c2a';
-const GOLD    = '#c9a84c';
+
+/** Sample fleet for the demo building only (real buildings load /api/vehicles). */
+const FLEET_VEHICLES: { id: string; plate: string; driver: string; driverPhone: string; type: string; capacity: number; unit: string; status: string }[] = [];
+
+const METHOD_OPTIONS = [
+  { code: 'bank_transfer', label: 'تحويل بنكي' }, { code: 'cheque', label: 'شيك' },
+  { code: 'cash', label: 'نقداً' }, { code: 'card', label: 'بطاقة ائتمان' },
+];
+const METHOD_LABEL: Record<string, string> = Object.fromEntries(METHOD_OPTIONS.map(m => [m.code, m.label]));
+const d10 = (v: any) => (v ? String(v).slice(0, 10) : '');
+
+/** Server stage (0 requested … 8 completed) → the stage whose form is open in the drawer. */
+export const uiStage = (server: number) => (server <= 5 ? server + 1 : server <= 7 ? 7 : 8);
+
+/** GET /refill-requests row → RefillRequestItem used by this drawer and the refill tab. */
+export function mapLiveRefill(x: any): RefillRequestItem {
+  const sd = x.stageData ?? {};
+  const n = (v: any) => Number(v ?? 0);
+  const STATUS_BY_UI: Record<number, string> = { 1: 'requested', 2: 'po_issued', 3: 'paid', 4: 'collecting', 5: 'invoiced', 6: 'scheduled', 7: 'pending_approval', 8: 'completed' };
+  const stage = x.status === 'cancelled' ? 0 : uiStage(Number(x.stage ?? 0));
+  return {
+    id: String(x.id), requestNo: x.requestNo, stage, status: x.status === 'cancelled' ? 'cancelled' : STATUS_BY_UI[stage] ?? x.status, priority: x.priority ?? 'medium',
+    requestDate: d10(x.requestDate), requestedBy: x.requestedBy ?? '—', tank: String(x.tankId), tankLabel: x.tankLabel ?? x.tank ?? '—',
+    requestedQty: n(x.requestedQty), quantityUnit: 'لتر', currentLevel: n(x.currentLevel), capacity: n(x.capacity), levelPct: n(x.levelPct), notes: x.notes ?? undefined,
+    completedDate: x.completedDate ? d10(x.completedDate) : undefined, deliveredQty: x.deliveredQty ?? undefined,
+    newTankLevel: x.newTankLevel ?? undefined, newLevelPct: x.newLevelPct ?? undefined,
+    stageData: {
+      po: sd.po ? { supplierId: sd.po.supplierId ?? undefined, supplier: sd.po.supplier ?? '', poNumber: sd.po.poNumber ?? '', poDate: d10(sd.po.poDate), poQty: n(sd.po.poQty), unitPrice: n(sd.po.unitPrice), totalAmount: n(sd.po.totalAmount), supplierContact: sd.po.supplierContact } : undefined,
+      payment: sd.payment ? { amount: n(sd.payment.amount), date: d10(sd.payment.date), method: sd.payment.method ?? '', reference: sd.payment.reference ?? '' } : undefined,
+      collection: sd.collection ? { tankerPlate: sd.collection.tankerPlate ?? '', driverName: sd.collection.driverName ?? '', vehicleId: sd.collection.vehicleId ? String(sd.collection.vehicleId) : undefined,
+        collectionDate: d10(sd.collection.collectionDate), meterBefore: n(sd.collection.meterBefore), meterAfter: sd.collection.meterAfter != null ? n(sd.collection.meterAfter) : n(sd.collection.meterBefore) + n(sd.collection.collectedQty) } : undefined,
+      invoice: sd.invoice ? { invoiceNumber: sd.invoice.invoiceNumber ?? '', invoiceDate: d10(sd.invoice.invoiceDate), amount: n(sd.invoice.amount) } : undefined,
+      schedule: sd.schedule ? { deliveryDate: d10(sd.schedule.deliveryDate), deliveryTime: sd.schedule.deliveryTime ?? '', civilDefenseConfirmed: !!sd.schedule.civilDefenseConfirmed, civilDefenseRef: sd.schedule.civilDefenseRef } : undefined,
+      refill: sd.refill ? { refillDate: d10(sd.refill.refillDate), refillTime: sd.refill.refillTime ?? '', tankMeterBefore: n(sd.refill.tankMeterBefore), tankMeterAfter: n(sd.refill.tankMeterAfter), driverName: sd.refill.driverName ?? '', tankerPlate: sd.refill.tankerPlate ?? '' } : undefined,
+      approval: sd.approval ? { approvedBy: sd.approval.approvedBy ?? '', approvalDate: d10(sd.approval.approvalDate), notes: sd.approval.notes } : undefined,
+    },
+  };
+}
 
 export interface RefillStageData {
-  po?: { supplier: string; poNumber: string; poDate: string; poQty: number; unitPrice: number; totalAmount: number; supplierContact?: string; };
+  po?: { supplierId?: number; supplier: string; poNumber: string; poDate: string; poQty: number; unitPrice: number; totalAmount: number; supplierContact?: string; };
   payment?: { amount: number; date: string; method: string; reference: string; };
   collection?: { tankerPlate: string; driverName: string; driverPhone?: string; vehicleId?: string; collectionDate: string; meterBefore: number; meterAfter: number; };
   invoice?: { invoiceNumber: string; invoiceDate: string; amount: number; };
@@ -25,7 +64,7 @@ export interface RefillStageData {
   approval?: { approvedBy: string; approvalDate: string; notes?: string; };
 }
 export interface RefillRequestItem {
-  id: string; stage: number; status: string; priority: string;
+  id: string; requestNo?: string; stage: number; status: string; priority: string;
   requestDate: string; requestedBy: string; tank: string; tankLabel: string;
   requestedQty: number; quantityUnit: string;
   currentLevel: number; capacity: number; levelPct: number; notes?: string;
@@ -55,12 +94,41 @@ interface Props {
   request: RefillRequestItem | null;
   onClose: () => void;
   onUpdate: (r: RefillRequestItem) => void;
+  /** Save every stage to the API (POST /refill-requests/{id}/…). Without it the drawer works on local data only. */
+  live?: boolean;
 }
 
-export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, onUpdate }) => {
+export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, onUpdate, live }) => {
   const [form] = Form.useForm();
   const [completing, setCompleting] = useState(false);
   const [exitConfirm, setExitConfirm] = useState(false);
+  const [vendors, setVendors] = useState<{ id: number; name: string; phone?: string; code?: string }[]>([]);
+  const [vehicles, setVehicles] = useState<{ id: number; plateNo: string; capacityLitres?: number; isActive: boolean; vendorId?: number | null }[]>([]);
+  const [vendorKey, setVendorKey] = useState(0);
+  const [newVendorOpen, setNewVendorOpen] = useState(false);
+  const [vendorForm] = Form.useForm();
+  const [tankerOwner, setTankerOwner] = useState<'supplier' | 'own'>('supplier');
+  useEffect(() => {
+    if (!live || !open) return;
+    // gas suppliers are third parties: never our own company or the Civil Defense payee
+    const third = (r: any[]) => r.filter(v => v.code !== 'OWN-COMPANY' && v.code !== 'CIVIL-DEFENSE');
+    api<any[]>('/vendors/options', { query: { type: 'gas_supplier' } })
+      .then(r => (third(r).length ? third(r) : api<any[]>('/vendors/options').then(third)))
+      .then(setVendors).catch(() => setVendors([]));
+    api<{ items: any[] }>('/vehicles', { query: { pageSize: 0 } }).then(r => setVehicles(r.items)).catch(() => setVehicles([]));
+  }, [live, open, vendorKey]);
+
+  const addVendor = async () => {
+    const v = await vendorForm.validateFields();
+    try {
+      const types = await api<{ id: number; code: string }[]>('/lookups/VENDOR_TYPE');
+      const created = await api<any>('/vendors', { method: 'POST', body: { nameAr: v.nameAr, nameEn: v.nameEn || null, phone: v.phone || null, email: v.email || null, trn: v.trn || null, isActive: true, vendorTypeId: types.find(t => t.code === 'gas_supplier')?.id ?? types[0]?.id } });
+      message.success('تمت إضافة المورد');
+      setNewVendorOpen(false);
+      setVendorKey(k => k + 1);
+      if (created?.id) form.setFieldsValue({ vendorId: created.id, supplierContact: v.phone });
+    } catch (e) { message.error(errorMessage(e), 6); }
+  };
 
   if (!request) return null;
   const cur = request.stage;
@@ -70,6 +138,34 @@ export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, o
     try {
       const vals = await form.validateFields();
       setCompleting(true);
+      if (live) {
+        const id = request.id;
+        const post = (path: string, body: any) => api(`/refill-requests/${id}/${path}`, { method: 'POST', body });
+        if (cur === 1) await post('po', { vendorId: vals.vendorId, poNumber: vals.poNumber || null, poDate: vals.poDate || null, qty: vals.poQty, unitPrice: vals.unitPrice });
+        if (cur === 2) await post('payment', { amount: vals.amount, date: vals.date, method: vals.method, reference: vals.reference });
+        if (cur === 3) await post('collection', {
+          vehicleId: vals.vehicleId ? Number(vals.vehicleId) : null, tankerPlate: vals.tankerPlate, driverName: vals.driverName, driverPhone: vals.driverPhone || null, ownVehicle: tankerOwner === 'own',
+          collectionDate: vals.collectionDate, meterBefore: vals.meterBefore, meterAfter: vals.meterAfter,
+        });
+        if (cur === 4) await post('purchase-invoice', { invoiceNumber: vals.invoiceNumber, invoiceDate: vals.invoiceDate, amount: vals.amount, vatRate: vals.vatRate ?? 5 });
+        if (cur === 5) await post('schedule', { deliveryDate: vals.deliveryDate, timeSlot: vals.deliveryTime, civilDefenseConfirmed: !!vals.civilDefenseConfirmed, civilDefenseRef: vals.civilDefenseRef || null });
+        if (cur === 6 && sd.schedule && !sd.schedule.civilDefenseConfirmed) {
+          // the tank cannot be refilled before Civil Defense confirms — record the confirmation on the schedule first
+          await post('schedule', { deliveryDate: sd.schedule.deliveryDate, timeSlot: sd.schedule.deliveryTime || null, civilDefenseConfirmed: true, civilDefenseRef: vals.civilDefenseRef || null });
+        }
+        if (cur === 6) await post('refill', {
+          refillDate: vals.refillDate, refillTime: vals.refillTime, tankerPlate: vals.tankerPlate, driverName: vals.driverName, driverPhone: vals.driverPhone || null,
+          levelBefore: vals.tankMeterBefore, levelAfter: vals.tankMeterAfter,
+        });
+        if (cur === 7) await post('approve', { notes: vals.notes || null });
+        const fresh = mapLiveRefill(await api<any>(`/refill-requests/${id}`));
+        onUpdate(fresh);
+        form.resetFields();
+        setCompleting(false);
+        if (fresh.stage >= 8) { message.success('تم اكتمال طلب التعبئة بنجاح'); onClose(); }
+        else message.success('تم حفظ المرحلة');
+        return;
+      }
       await new Promise(r => setTimeout(r, 350));
       const newSd: RefillStageData = { ...sd };
       if (cur === 1) newSd.po = vals;
@@ -103,12 +199,15 @@ export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, o
         stage: newStage,
         status: STATUS_MAP[newStage] || 'completed',
         stageData: newSd,
-        ...(done ? { completedDate: new Date().toISOString().split('T')[0], deliveredQty, newTankLevel, newLevelPct } : {}),
+        ...(done ? { completedDate: dayjs().format('YYYY-MM-DD'), deliveredQty, newTankLevel, newLevelPct } : {}),
       });
       form.resetFields();
       setCompleting(false);
       if (done) { message.success('تم اكتمال طلب التعبئة بنجاح'); onClose(); }
-    } catch { setCompleting(false); }
+    } catch (e: any) {
+      setCompleting(false);
+      if (e && !e.errorFields) message.error(errorMessage(e), 6);
+    }
   };
 
   const summary = (idx: number) => {
@@ -135,7 +234,7 @@ export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, o
       <Descriptions size="small" column={2} style={{ direction: 'rtl' }}>
         <Descriptions.Item label="المبلغ المدفوع"><Text style={{ color: '#52c41a', fontWeight: 700 }}>{sd.payment.amount.toLocaleString()} درهم</Text></Descriptions.Item>
         <Descriptions.Item label="تاريخ الدفع">{sd.payment.date}</Descriptions.Item>
-        <Descriptions.Item label="طريقة الدفع">{sd.payment.method}</Descriptions.Item>
+        <Descriptions.Item label="طريقة الدفع">{METHOD_LABEL[sd.payment.method] ?? sd.payment.method}</Descriptions.Item>
         <Descriptions.Item label="رقم المرجع">{sd.payment.reference}</Descriptions.Item>
       </Descriptions>
     );
@@ -230,12 +329,20 @@ export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, o
     if (idx === 1) return (
       <Form form={form} layout="vertical" size="small">
         <Row gutter={12}>
-          <Col span={12}><Form.Item name="supplier" label="اسم المورد" rules={[{ required: true, message: '' }]}><Input placeholder="مثال: EMGAS" /></Form.Item></Col>
+          <Col span={12}>{live ? (
+            <Form.Item name="vendorId" label="المورد" rules={[{ required: true, message: 'اختر المورد' }]}>
+              <Select showSearch optionFilterProp="label" placeholder="اختر المورد (طرف ثالث)..." notFoundContent="لا يوجد موردون — أضف مورداً"
+                options={vendors.map(v => ({ value: v.id, label: v.name }))}
+                onChange={(id: number) => form.setFieldsValue({ supplierContact: vendors.find(v => v.id === id)?.phone })}
+                dropdownRender={menu => (<>{menu}<div style={{ borderTop: '1px solid #f0f0f0', padding: 6 }}>
+                  <Button type="link" size="small" onClick={() => { vendorForm.resetFields(); setNewVendorOpen(true); }}>+ إضافة مورد جديد</Button></div></>)} />
+            </Form.Item>
+          ) : <Form.Item name="supplier" label="اسم المورد" rules={[{ required: true, message: '' }]}><Input placeholder="مثال: EMGAS" /></Form.Item>}</Col>
           <Col span={12}><Form.Item name="poNumber" label="رقم أمر الشراء" rules={[{ required: true, message: '' }]}><Input placeholder="PO-2026-XXXX" /></Form.Item></Col>
           <Col span={12}><Form.Item name="poDate" label="تاريخ الطلب" rules={[{ required: true, message: '' }]}><Input type="date" /></Form.Item></Col>
-          <Col span={12}><Form.Item name="poQty" label={`الكمية (${request.quantityUnit})`} rules={[{ required: true, message: '' }]}><InputNumber min={1} style={{ width: '100%' }} defaultValue={request.requestedQty} /></Form.Item></Col>
+          <Col span={12}><Form.Item name="poQty" label={`الكمية (${request.quantityUnit})`} initialValue={request.requestedQty} rules={[{ required: true, message: 'الكمية مطلوبة' }]}><InputNumber min={1} style={{ width: '100%' }} /></Form.Item></Col>
           <Col span={12}><Form.Item name="unitPrice" label="سعر الوحدة (درهم)" rules={[{ required: true, message: '' }]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
-          <Col span={12}><Form.Item name="totalAmount" label="المبلغ الإجمالي (درهم)" rules={[{ required: true, message: '' }]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+          {!live && <Col span={12}><Form.Item name="totalAmount" label="المبلغ الإجمالي (درهم)" rules={[{ required: true, message: '' }]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>}
           <Col span={24}><Form.Item name="supplierContact" label="جهة الاتصال بالمورد"><Input placeholder="اختياري" /></Form.Item></Col>
         </Row>
       </Form>
@@ -246,12 +353,7 @@ export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, o
           <Col span={12}><Form.Item name="amount" label="المبلغ المدفوع (درهم)" rules={[{ required: true, message: '' }]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
           <Col span={12}><Form.Item name="date" label="تاريخ الدفع" rules={[{ required: true, message: '' }]}><Input type="date" /></Form.Item></Col>
           <Col span={12}><Form.Item name="method" label="طريقة الدفع" rules={[{ required: true, message: '' }]}>
-            <Select placeholder="اختر...">
-              <Option value="تحويل بنكي">تحويل بنكي</Option>
-              <Option value="شيك">شيك</Option>
-              <Option value="نقداً">نقداً</Option>
-              <Option value="بطاقة ائتمان">بطاقة ائتمان</Option>
-            </Select>
+            <Select placeholder="اختر..." options={METHOD_OPTIONS.map(m => ({ value: live ? m.code : m.label, label: m.label }))} />
           </Form.Item></Col>
           <Col span={12}><Form.Item name="reference" label="رقم المرجع / الشيك" rules={[{ required: true, message: '' }]}><Input /></Form.Item></Col>
         </Row>
@@ -261,6 +363,21 @@ export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, o
       <Form form={form} layout="vertical" size="small">
         <Row gutter={12}>
           <Col span={24}>
+            {live ? (
+              <>
+                <Form.Item label="الصهريج تابع لـ" style={{ marginBottom: 8 }}>
+                  <Select value={tankerOwner} onChange={(v: 'supplier' | 'own') => { setTankerOwner(v); form.setFieldsValue({ vehicleId: undefined, tankerPlate: undefined }); }}
+                    options={[{ value: 'supplier', label: `المورد (طرف ثالث)${sd.po?.supplier ? ` — ${sd.po.supplier}` : ''}` }, { value: 'own', label: 'أسطول الشركة' }]} />
+                </Form.Item>
+                <Form.Item name="vehicleId" label="اختر الصهريج / المركبة">
+                  <Select allowClear placeholder={tankerOwner === 'own' ? 'اختر من أسطول الشركة…' : 'اختر من صهاريج المورد أو اكتب اللوحة أدناه…'}
+                    notFoundContent={tankerOwner === 'own' ? 'لا توجد مركبات في الأسطول' : 'لا توجد صهاريج مسجلة لهذا المورد — اكتب اللوحة وستُسجل للمورد'}
+                    options={vehicles.filter(v => v.isActive && (tankerOwner === 'own' ? !v.vendorId : v.vendorId === sd.po?.supplierId))
+                      .map(v => ({ value: v.id, label: `${v.plateNo}${v.capacityLitres ? ` — ${Number(v.capacityLitres).toLocaleString()} لتر` : ''}` }))}
+                    onChange={(id: number) => { const v = vehicles.find(x => x.id === id); if (v) form.setFieldsValue({ tankerPlate: v.plateNo }); }} />
+                </Form.Item>
+              </>
+            ) : (
             <Form.Item name="vehicleId" label="اختر الصهريج / المركبة" rules={[{ required: true, message: 'اختر المركبة' }]}>
               <Select
                 placeholder="اختر من أسطول المركبات..."
@@ -281,6 +398,7 @@ export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, o
                 ))}
               </Select>
             </Form.Item>
+            )}
           </Col>
           <Col span={12}><Form.Item name="tankerPlate" label="لوحة الصهريج" rules={[{ required: true, message: '' }]}><Input placeholder="تعبئة تلقائياً عند الاختيار" /></Form.Item></Col>
           <Col span={12}><Form.Item name="driverName" label="اسم السائق" rules={[{ required: true, message: '' }]}><Input placeholder="تعبئة تلقائياً عند الاختيار" /></Form.Item></Col>
@@ -296,7 +414,15 @@ export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, o
         <Row gutter={12}>
           <Col span={12}><Form.Item name="invoiceNumber" label="رقم الفاتورة" rules={[{ required: true, message: '' }]}><Input /></Form.Item></Col>
           <Col span={12}><Form.Item name="invoiceDate" label="تاريخ الفاتورة" rules={[{ required: true, message: '' }]}><Input type="date" /></Form.Item></Col>
-          <Col span={12}><Form.Item name="amount" label="مبلغ الفاتورة (درهم)" rules={[{ required: true, message: '' }]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+          <Col span={12}><Form.Item name="amount" label="المبلغ قبل الضريبة (درهم)" initialValue={sd?.po?.totalAmount || undefined}
+            extra="قيمة الغاز بدون ضريبة القيمة المضافة — تُضاف الضريبة تلقائياً" rules={[{ required: true, message: 'المبلغ مطلوب' }]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+          <Col span={12}><Form.Item name="vatRate" label="نسبة الضريبة %" initialValue={5}><InputNumber min={0} max={100} style={{ width: '100%' }} /></Form.Item></Col>
+          <Form.Item noStyle shouldUpdate>
+            {({ getFieldValue }) => {
+              const net = Number(getFieldValue('amount') ?? 0); const vat = Math.round(net * Number(getFieldValue('vatRate') ?? 0)) / 100;
+              return <Col span={24}><Text type="secondary" style={{ fontSize: 12 }}>الضريبة {vat.toLocaleString()} درهم — إجمالي فاتورة المورد {(net + vat).toLocaleString()} درهم</Text></Col>;
+            }}
+          </Form.Item>
         </Row>
       </Form>
     );
@@ -322,7 +448,19 @@ export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, o
           <Col span={12}><Form.Item name="tankerPlate" label="لوحة الصهريج" initialValue={sd.collection?.tankerPlate} rules={[{ required: true, message: '' }]}><Input /></Form.Item></Col>
           <Col span={12}><Form.Item name="driverName" label="اسم السائق" initialValue={sd.collection?.driverName} rules={[{ required: true, message: '' }]}><Input /></Form.Item></Col>
           <Col span={12}><Form.Item name="tankMeterBefore" label="قراءة خزان المبنى قبل التعبئة" initialValue={request.currentLevel} rules={[{ required: true, message: '' }]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
-          <Col span={12}><Form.Item name="tankMeterAfter" label="قراءة خزان المبنى بعد التعبئة" rules={[{ required: true, message: '' }]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+          <Col span={12}><Form.Item name="tankMeterAfter" label="قراءة خزان المبنى بعد التعبئة" dependencies={['tankMeterBefore']}
+            rules={[{ required: true, message: '' }, ({ getFieldValue }) => ({ validator: (_, v) => {
+              if (v == null) return Promise.resolve();
+              if (v <= Number(getFieldValue('tankMeterBefore') ?? 0)) return Promise.reject(new Error('يجب أن تكون أكبر من القراءة قبل التعبئة'));
+              if (request.capacity && v > request.capacity) return Promise.reject(new Error(`تتجاوز سعة الخزان (${request.capacity.toLocaleString()})`));
+              return Promise.resolve();
+            } })]}><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+          {live && sd.schedule && !sd.schedule.civilDefenseConfirmed && (<>
+            <Col span={24}><Alert type="warning" showIcon style={{ marginBottom: 10 }} message="لم يُؤكَّد الدفاع المدني بعد — لا تتم التعبئة قبل التأكيد" /></Col>
+            <Col span={12}><Form.Item name="civilDefenseConfirmed" label="تأكيد الدفاع المدني" valuePropName="checked"
+              rules={[{ validator: (_, v) => (v ? Promise.resolve() : Promise.reject(new Error('التأكيد مطلوب قبل التعبئة'))) }]}><Switch checkedChildren="مؤكد" unCheckedChildren="قيد الانتظار" /></Form.Item></Col>
+            <Col span={12}><Form.Item name="civilDefenseRef" label="رقم تأكيد الدفاع المدني"><Input placeholder="اختياري" /></Form.Item></Col>
+          </>)}
         </Row>
       </Form>
     );
@@ -388,7 +526,7 @@ export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, o
           <Space wrap>
             <FireOutlined style={{ color: '#fa8c16' }} />
             <span style={{ fontWeight: 700 }}>طلب تعبئة</span>
-            <Tag style={{ fontFamily: 'monospace', fontSize: 12 }}>{request.id}</Tag>
+            <Tag style={{ fontFamily: 'monospace', fontSize: 12 }}>{request.requestNo ?? request.id}</Tag>
             <Tag color={statusColors[request.status]}>{statusLabels[request.status]}</Tag>
             <Tag color={priorityColors[request.priority]}>{priorityLabels[request.priority]}</Tag>
           </Space>
@@ -456,6 +594,17 @@ export const RefillRequestDrawer: React.FC<Props> = ({ open, request, onClose, o
           })}
         </div>
       </Drawer>
+      <Modal open={newVendorOpen} title="مورد غاز جديد (طرف ثالث)" okText="إضافة" cancelText="إلغاء" onOk={addVendor} onCancel={() => setNewVendorOpen(false)} destroyOnClose>
+        <Form form={vendorForm} layout="vertical">
+          <Form.Item name="nameAr" label="اسم المورد" rules={[{ required: true, message: 'مطلوب' }]}><Input /></Form.Item>
+          <Form.Item name="nameEn" label="الاسم بالإنجليزية"><Input dir="ltr" /></Form.Item>
+          <Row gutter={12}>
+            <Col span={12}><Form.Item name="phone" label="الهاتف"><Input dir="ltr" /></Form.Item></Col>
+            <Col span={12}><Form.Item name="email" label="البريد"><Input dir="ltr" /></Form.Item></Col>
+            <Col span={12}><Form.Item name="trn" label="الرقم الضريبي"><Input dir="ltr" /></Form.Item></Col>
+          </Row>
+        </Form>
+      </Modal>
       <Modal open={exitConfirm} onCancel={() => setExitConfirm(false)} footer={null} width={380} centered closable={false}>
         <div style={{ textAlign: 'center', padding: '8px 0' }}>
           <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#fa8c16', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
@@ -478,9 +627,11 @@ interface NewRefillModalProps {
   onClose: () => void;
   onSave: (r: RefillRequestItem) => void;
   tanks: Array<{ id: string; label: string; currentLevel: number; capacity: number; levelPct: number; unit?: string; }>;
+  /** Live mode: create the request through the API (POST /refill-requests) instead of a local record. */
+  onCreate?: (v: { tankId: number; requestedQty: number; priority: string; requestDate?: string; notes?: string }) => Promise<void>;
 }
 
-export const NewRefillRequestModal: React.FC<NewRefillModalProps> = ({ open, onClose, onSave, tanks }) => {
+export const NewRefillRequestModal: React.FC<NewRefillModalProps> = ({ open, onClose, onSave, tanks, onCreate }) => {
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
 
@@ -488,13 +639,22 @@ export const NewRefillRequestModal: React.FC<NewRefillModalProps> = ({ open, onC
     try {
       const vals = await form.validateFields();
       setSubmitting(true);
+      if (onCreate) {
+        try {
+          await onCreate({ tankId: Number(vals.tank), requestedQty: vals.requestedQty, priority: vals.priority, requestDate: vals.requestDate || undefined, notes: vals.notes || undefined });
+          form.resetFields();
+          message.success('تم إنشاء طلب التعبئة بنجاح');
+        } catch (e) { message.error(errorMessage(e), 6); }
+        setSubmitting(false);
+        return;
+      }
       await new Promise(r => setTimeout(r, 300));
       const tank = tanks.find(t => t.id === vals.tank);
       const id = `RFR-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}`;
       onSave({
         id, stage: 0, status: 'requested',
         priority: vals.priority,
-        requestDate: vals.requestDate || new Date().toISOString().split('T')[0],
+        requestDate: vals.requestDate || dayjs().format('YYYY-MM-DD'),
         requestedBy: 'مدير المبنى',
         tank: vals.tank,
         tankLabel: tank?.label || vals.tank,
@@ -521,18 +681,25 @@ export const NewRefillRequestModal: React.FC<NewRefillModalProps> = ({ open, onC
       okText="إنشاء الطلب"
       cancelText="إلغاء"
       okButtonProps={{ loading: submitting, style: { background: PRIMARY } }}
-      width={480}
+      width={720}
       centered
     >
+      <div style={{ background: '#f6faf7', border: '1px solid #e3efe6', borderRadius: 10, padding: '14px 6px 6px', marginTop: 12 }}>
+        <Steps size="small" labelPlacement="vertical" current={0}
+          items={STAGES.map(s => ({ title: <span style={{ fontSize: 10.5, whiteSpace: 'nowrap' }}>{s.title}</span> }))} />
+      </div>
+      <Alert type="info" showIcon style={{ margin: '12px 0 0', fontSize: 12 }}
+        message={<span><Text strong>المرحلة 1 — طلب التعبئة:</Text> اختر الخزان والكمية. بعد الإنشاء تُفتح مراحل الطلب لمتابعتها: أمر الشراء ← الدفع للمورد ← استلام الغاز ← فاتورة الشراء ← جدولة التوصيل ← تعبئة الخزان ← موافقة الإدارة.</span>} />
       <Form form={form} layout="vertical" size="small" style={{ marginTop: 16 }}
-        initialValues={{ priority: 'medium', requestDate: new Date().toISOString().split('T')[0] }}>
+        initialValues={{ priority: 'medium', requestDate: dayjs().format('YYYY-MM-DD') }}>
         <Form.Item name="tank" label="الخزان" rules={[{ required: true, message: 'اختر الخزان' }]}>
-          <Select placeholder="اختر الخزان...">
+          <Select placeholder="اختر الخزان..." notFoundContent={onCreate ? 'لا توجد خزانات لهذا المبنى — أضف خزاناً أولاً' : undefined}
+            onChange={(id: string) => { const t = tanks.find(x => x.id === id); if (t && onCreate && !form.getFieldValue('requestedQty')) form.setFieldsValue({ requestedQty: Math.max(0, Math.round(t.capacity - t.currentLevel)) }); }}>
             {tanks.length > 0 ? tanks.map(t => (
               <Option key={t.id} value={t.id}>
                 {t.label} — {t.levelPct}% ({t.currentLevel.toLocaleString()} {t.unit || 'لتر'})
               </Option>
-            )) : (
+            )) : onCreate ? null : (
               <Option value="main-tank">الخزان الرئيسي</Option>
             )}
           </Select>

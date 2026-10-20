@@ -1,9 +1,19 @@
 @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=Inter:wght@400;600;700&display=swap');
 
 *, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; overflow-x: hidden; width: 100%; }
+/* overflow-x: clip (not hidden) so the browser window stays the page scroller —
+   "hidden" on both html and body turned <body> into a separate scroll container. */
+html, body { margin: 0; padding: 0; overflow-x: clip; width: 100%; }
 body { background: #f5f6fa; }
-#root { overflow-x: hidden; width: 100%; }
+#root { overflow-x: clip; width: 100%; }
+
+/* Sidebar: fixed full-height column; user card and support box stay, only the menu scrolls */
+.app-sider .ant-layout-sider-children { display: flex; flex-direction: column; height: 100%; }
+.app-sider .ant-layout-sider-children > div:first-child { flex-shrink: 0; }
+.app-sider-menu { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: rgba(201,168,76,0.4) transparent; }
+.app-sider-menu::-webkit-scrollbar { width: 4px; }
+.app-sider-menu::-webkit-scrollbar-thumb { background: rgba(201,168,76,0.4); border-radius: 2px; }
 
 /* Ant Design RTL menu items */
 .ant-menu-item { display: flex !important; align-items: center !important; gap: 8px; }

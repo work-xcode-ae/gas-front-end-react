@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   Drawer, Typography, Tag, Button, Table, Space, Tabs,
   Row, Col, Modal, Form, Input, InputNumber, Select,
-  DatePicker, message, Tooltip, Timeline, Avatar, Divider,
+  DatePicker, message, Tooltip, Timeline, Divider,
 } from 'antd';
 import {
   CreditCardOutlined, PlusOutlined, PrinterOutlined,
@@ -13,7 +13,7 @@ import {
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 const { Option } = Select;
 const PRIMARY = '#1a5c2a';
 const GOLD    = '#c9a84c';

@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
   Modal, Form, Input, InputNumber, Select, Button,
-  Row, Col, Divider, Space, Typography, Tag, Steps,
-  Alert, Switch, DatePicker, Tooltip, Badge, message, Upload
+  Row, Col, Space, Typography, Tag, Steps,
+  Alert, Switch, DatePicker, Tooltip, message, Upload
 } from 'antd';
 import {
   DashboardOutlined, HomeOutlined, UserOutlined,
@@ -25,7 +25,7 @@ const arLocaleShortDays = {
   },
 } as typeof arEG;
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 const { Option } = Select;
 const PRIMARY = '#1a5c2a';
 const GOLD    = '#c9a84c';

@@ -1,7 +1,7 @@
 import React, { useRef } from 'react';
 import {
-  Drawer, Button, Tag, Descriptions, Divider, Row, Col,
-  Typography, Space, Timeline, Progress, Alert, Badge,
+  Drawer, Button, Tag, Divider, Row, Col,
+  Typography, Space, Progress, Alert, 
 } from 'antd';
 import {
   PrinterOutlined, EditOutlined, FireOutlined, HomeOutlined,
@@ -228,7 +228,7 @@ const GasContractDrawer: React.FC<Props> = ({ open, contract, buildingName, onCl
         </Row>
 
         {/* Parties */}
-        <Divider orientation="right" style={{ fontSize: 12, color: '#888', margin: '0 0 10px' }}>
+        <Divider titlePlacement="right" style={{ fontSize: 12, color: '#888', margin: '0 0 10px' }}>
           <UserOutlined style={{ marginInlineEnd: 4 }} />أطراف العقد
         </Divider>
         <InfoRow label="المستأجر"><Text strong>{contract.tenant}</Text></InfoRow>
@@ -237,7 +237,7 @@ const GasContractDrawer: React.FC<Props> = ({ open, contract, buildingName, onCl
         <InfoRow label="رقم العداد"><Text style={{ fontFamily: 'monospace' }}>{contract.meter}</Text></InfoRow>
 
         {/* Duration */}
-        <Divider orientation="right" style={{ fontSize: 12, color: '#888', margin: '14px 0 10px' }}>
+        <Divider titlePlacement="right" style={{ fontSize: 12, color: '#888', margin: '14px 0 10px' }}>
           <CalendarOutlined style={{ marginInlineEnd: 4 }} />مدة العقد
         </Divider>
         <InfoRow label="تاريخ البداية"><Text>{contract.startDate}</Text></InfoRow>
@@ -261,7 +261,7 @@ const GasContractDrawer: React.FC<Props> = ({ open, contract, buildingName, onCl
         </InfoRow>
 
         {/* Fees */}
-        <Divider orientation="right" style={{ fontSize: 12, color: '#888', margin: '14px 0 10px' }}>
+        <Divider titlePlacement="right" style={{ fontSize: 12, color: '#888', margin: '14px 0 10px' }}>
           <DollarOutlined style={{ marginInlineEnd: 4 }} />الرسوم والأسعار
         </Divider>
         <InfoRow label="الرسوم الشهرية"><Text strong style={{ color: GOLD }}>{contract.monthlyFee} {contract.currency}</Text></InfoRow>
@@ -277,7 +277,7 @@ const GasContractDrawer: React.FC<Props> = ({ open, contract, buildingName, onCl
         {contract.disconnectionFee != null && <InfoRow label="رسوم القطع"><Text>{contract.disconnectionFee} {contract.currency}</Text></InfoRow>}
 
         {/* Deposit */}
-        <Divider orientation="right" style={{ fontSize: 12, color: '#888', margin: '14px 0 10px' }}>
+        <Divider titlePlacement="right" style={{ fontSize: 12, color: '#888', margin: '14px 0 10px' }}>
           <SafetyCertificateOutlined style={{ marginInlineEnd: 4 }} />الوديعة
         </Divider>
         <InfoRow label="مبلغ الوديعة"><Text strong>{contract.depositAmount ?? '—'} {contract.currency}</Text></InfoRow>
@@ -290,7 +290,7 @@ const GasContractDrawer: React.FC<Props> = ({ open, contract, buildingName, onCl
         {/* Meter / Balance */}
         {(contract.lastReading != null || contract.balanceM3 != null) && (
           <>
-            <Divider orientation="right" style={{ fontSize: 12, color: '#888', margin: '14px 0 10px' }}>
+            <Divider titlePlacement="right" style={{ fontSize: 12, color: '#888', margin: '14px 0 10px' }}>
               قراءة العداد والرصيد
             </Divider>
             {contract.lastReading != null && <InfoRow label="آخر قراءة"><Text>{contract.lastReading} م³ {contract.lastReadDate ? `(${contract.lastReadDate})` : ''}</Text></InfoRow>}
@@ -312,7 +312,7 @@ const GasContractDrawer: React.FC<Props> = ({ open, contract, buildingName, onCl
         {/* Terms */}
         {contract.terms && (
           <>
-            <Divider orientation="right" style={{ fontSize: 12, color: '#888', margin: '14px 0 10px' }}>
+            <Divider titlePlacement="right" style={{ fontSize: 12, color: '#888', margin: '14px 0 10px' }}>
               <FileTextOutlined style={{ marginInlineEnd: 4 }} />الشروط والأحكام
             </Divider>
             <div style={{ background: '#f9f9f9', borderRadius: 8, padding: '10px 14px', border: '1px solid #f0f0f0', fontSize: 12, whiteSpace: 'pre-line', lineHeight: 1.9, color: '#444' }}>

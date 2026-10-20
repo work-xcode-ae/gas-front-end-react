@@ -1,622 +1,252 @@
-import React, { useState } from 'react';
-import ReactApexChart from 'react-apexcharts';
+import React, { useEffect, useState } from 'react';
 import {
-  Row, Col, Card, Table, Tag, Button, Typography, Space,
-  Avatar, Drawer, Descriptions, Modal, Form, Input,
-  InputNumber, Select, Tabs, Alert, Divider, Progress, Tooltip,
+  Button, Card, Col, DatePicker, Empty, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Table, Tag, Typography, message, Tooltip,
 } from 'antd';
-import {
-  AppstoreOutlined, ToolOutlined, CheckCircleOutlined, AlertOutlined,
-  PlusOutlined, CalendarOutlined, DollarOutlined, FileTextOutlined,
-  UserOutlined, HistoryOutlined, ExclamationCircleOutlined,
-  PrinterOutlined, InboxOutlined, SafetyCertificateOutlined,
-  ClockCircleOutlined, ShopOutlined, LaptopOutlined, BuildOutlined,
-  SettingOutlined, FireOutlined, MinusCircleOutlined,
-} from '@ant-design/icons';
+import { AppstoreOutlined, DeleteOutlined, EditOutlined, PlusOutlined, ReloadOutlined, SwapOutlined, ToolOutlined, WarningOutlined, DollarOutlined, InboxOutlined, ShoppingCartOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
+import { api, errorMessage, type Paged } from '../../api/client';
+import { useAuth } from '../../auth/AuthContext';
+import { useReference, locName } from '../../api/reference';
 
-const { Title, Text } = Typography;
-const { Option } = Select;
-const { TextArea } = Input;
+const { Text } = Typography;
 const PRIMARY = '#1a5c2a';
-const GOLD    = '#c9a84c';
-const today   = new Date();
-const soon    = new Date(today.getTime() + 60 * 86400000);
+const DARK = '#0b2e18';
+const GOLD = '#c9a84c';
 
-// ─── Interfaces ──────────────────────────────────────────────────────────────
 interface Asset {
-  id: string; assetNo: string; name: string; category: string;
-  type: string; brand: string; model: string; serialNo: string;
-  purchaseDate: string; purchasePrice: number;
-  depreciationRate: number; // % per year
-  status: 'active' | 'maintenance' | 'disposed' | 'storage' | 'lost';
-  condition: 'excellent' | 'good' | 'fair' | 'poor';
-  location: string; department: string;
-  assignedTo: string; warrantyExpiry?: string; notes?: string;
+  id: number; assetCode?: string | null; nameAr?: string | null; nameEn?: string | null; categoryId?: number | null; statusId?: number | null;
+  branchId?: number | null; buildingId?: number | null; serialNo?: string | null; purchaseDate?: string | null; purchaseCost?: number | null;
+  assignedEmployeeId?: number | null; warrantyExpiry?: string | null; notes?: string | null;
 }
-interface AssetMaintenance {
-  id: string; assetId: string; date: string;
-  type: 'preventive' | 'corrective' | 'inspection';
-  description: string; cost: number; technician: string;
-  nextDue?: string; status: 'done' | 'pending';
-}
-interface AssetDoc {
-  id: string; assetId: string; name: string;
-  type: 'warranty' | 'invoice' | 'manual' | 'certificate' | 'other';
-  issueDate: string; expiryDate?: string;
-}
-interface AssetAssignment {
-  id: string; assetId: string; assignedTo: string; department: string;
-  location: string; from: string; to?: string; notes?: string;
-}
+interface Lk { id: number; code: string; label: string }
+const STATUS_COLOR: Record<string, string> = { in_use: 'green', in_stock: 'blue', maintenance: 'orange', retired: 'default', lost: 'red' };
+const aName = (a?: Asset | null) => (a ? a.nameAr || a.nameEn || a.assetCode || `#${a.id}` : '—');
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-const currentValue = (asset: Asset): number => {
-  const years = (today.getTime() - new Date(asset.purchaseDate).getTime()) / (365.25 * 86400000);
-  return Math.max(0, Math.round(asset.purchasePrice * Math.pow(1 - asset.depreciationRate / 100, years)));
-};
-
-const expiryTag = (date?: string) => {
-  if (!date) return null;
-  const d = new Date(date);
-  if (d < today) return <Tag color="red" icon={<AlertOutlined />}>{date} — منتهي</Tag>;
-  if (d < soon)  return <Tag color="orange" icon={<ExclamationCircleOutlined />}>{date} — ينتهي قريباً</Tag>;
-  return <Tag color="green">{date}</Tag>;
-};
-
-const CATEGORY_ICONS: Record<string, React.ReactNode> = {
-  'تقنية المعلومات': <LaptopOutlined />,
-  'معدات': <SettingOutlined />,
-  'أثاث': <ShopOutlined />,
-  'أدوات': <ToolOutlined />,
-  'اسطوانات غاز': <FireOutlined />,
-  'بنية تحتية': <BuildOutlined />,
-};
-
-const CATEGORY_COLORS: Record<string, string> = {
-  'تقنية المعلومات': '#1677ff',
-  'معدات': '#fa8c16',
-  'أثاث': '#722ed1',
-  'أدوات': '#08979c',
-  'اسطوانات غاز': '#cf1322',
-  'بنية تحتية': '#1a5c2a',
-};
-
-const STATUS_MAP: Record<string, { label: string; color: string }> = {
-  active:      { label: 'نشط', color: 'green' },
-  maintenance: { label: 'صيانة', color: 'orange' },
-  disposed:    { label: 'مُستغنى عنه', color: 'default' },
-  storage:     { label: 'مخزن', color: 'blue' },
-  lost:        { label: 'مفقود', color: 'red' },
-};
-
-const COND_MAP: Record<string, { label: string; color: string }> = {
-  excellent: { label: 'ممتاز', color: 'green' },
-  good:      { label: 'جيد', color: 'cyan' },
-  fair:      { label: 'مقبول', color: 'orange' },
-  poor:      { label: 'ضعيف', color: 'red' },
-};
-
-// ─── Mock Data ───────────────────────────────────────────────────────────────
-const ASSETS: Asset[] = [
-  { id:'A-001', assetNo:'AST-001', name:'حاسوب محمول Dell', category:'تقنية المعلومات', type:'حاسوب', brand:'Dell', model:'Latitude 5540', serialNo:'DL54-887231', purchaseDate:'2023-03-15', purchasePrice:5800, depreciationRate:25, status:'active', condition:'good', location:'مكتب المديرية', department:'تقنية المعلومات', assignedTo:'محمد علي حسن', warrantyExpiry:'2026-03-15' },
-  { id:'A-002', assetNo:'AST-002', name:'طابعة مكتب HP LaserJet', category:'تقنية المعلومات', type:'طابعة', brand:'HP', model:'LaserJet Pro 4002', serialNo:'HP4002-332211', purchaseDate:'2022-08-10', purchasePrice:3200, depreciationRate:20, status:'active', condition:'good', location:'قسم المحاسبة', department:'المحاسبة', assignedTo:'قسم المحاسبة', warrantyExpiry:'2025-08-10' },
-  { id:'A-003', assetNo:'AST-003', name:'ضاغط غاز صناعي', category:'معدات', type:'ضاغط', brand:'Atlas Copco', model:'GA 22 VSD', serialNo:'AC-GA22-55441', purchaseDate:'2020-01-20', purchasePrice:85000, depreciationRate:15, status:'active', condition:'good', location:'مستودع أبوظبي', department:'العمليات', assignedTo:'قسم العمليات', warrantyExpiry:'2026-12-31' },
-  { id:'A-004', assetNo:'AST-004', name:'رافعة شوكة صغيرة', category:'معدات', type:'رافعة', brand:'Toyota', model:'8FBE15', serialNo:'TOY-FL-77812', purchaseDate:'2019-06-05', purchasePrice:62000, depreciationRate:15, status:'maintenance', condition:'fair', location:'مستودع أبوظبي', department:'العمليات', assignedTo:'فريق المستودع' },
-  { id:'A-005', assetNo:'AST-005', name:'مكيف مركزي Daikin 5طن', category:'معدات', type:'مكيف', brand:'Daikin', model:'RZAG140', serialNo:'DK-AC-22115', purchaseDate:'2021-09-01', purchasePrice:18000, depreciationRate:12, status:'active', condition:'excellent', location:'مكتب المديرية', department:'الإدارة', assignedTo:'مكتب المديرية', warrantyExpiry:'2027-09-01' },
-  { id:'A-006', assetNo:'AST-006', name:'طاولة اجتماعات كبيرة', category:'أثاث', type:'أثاث مكتبي', brand:'King', model:'مخصص', serialNo:'KF-TBL-2021-009', purchaseDate:'2021-02-14', purchasePrice:12000, depreciationRate:10, status:'active', condition:'good', location:'قاعة الاجتماعات', department:'الإدارة', assignedTo:'عام' },
-  { id:'A-007', assetNo:'AST-007', name:'مجموعة أدوات صيانة احترافية', category:'أدوات', type:'أدوات يدوية', brand:'Bosch', model:'GSB 18V Kit', serialNo:'BS-KIT-33221', purchaseDate:'2022-11-01', purchasePrice:4500, depreciationRate:20, status:'active', condition:'good', location:'ورشة الصيانة', department:'العمليات', assignedTo:'فريق الصيانة' },
-  { id:'A-008', assetNo:'AST-008', name:'اسطوانات غاز 12كغ (200 وحدة)', category:'اسطوانات غاز', type:'اسطوانة غاز', brand:'بن سدرة', model:'12KG-STD', serialNo:'CYL-12K-BATCH-22A', purchaseDate:'2022-03-01', purchasePrice:180000, depreciationRate:8, status:'active', condition:'good', location:'مستودع أبوظبي', department:'العمليات', assignedTo:'مستودع أبوظبي' },
-  { id:'A-009', assetNo:'AST-009', name:'سيرفر Dell PowerEdge R750', category:'تقنية المعلومات', type:'خادم', brand:'Dell', model:'PowerEdge R750', serialNo:'DL-R750-991122', purchaseDate:'2023-06-01', purchasePrice:95000, depreciationRate:20, status:'active', condition:'excellent', location:'غرفة الخوادم', department:'تقنية المعلومات', assignedTo:'قسم تقنية المعلومات', warrantyExpiry:'2028-06-01' },
-  { id:'A-010', assetNo:'AST-010', name:'نظام كاميرات مراقبة CCTV', category:'بنية تحتية', type:'كاميرات', brand:'Hikvision', model:'DS-2CD2347G2', serialNo:'HIK-32CH-44512', purchaseDate:'2021-07-15', purchasePrice:42000, depreciationRate:15, status:'active', condition:'good', location:'مبنى الشركة', department:'الإدارة', assignedTo:'عام', warrantyExpiry:'2026-07-15' },
-  { id:'A-011', assetNo:'AST-011', name:'مولد كهرباء احتياطي 150كيفا', category:'معدات', type:'مولد كهرباء', brand:'Cummins', model:'C150D5', serialNo:'CUM-G150-77234', purchaseDate:'2020-05-10', purchasePrice:75000, depreciationRate:12, status:'storage', condition:'fair', location:'مستودع أبوظبي', department:'العمليات', assignedTo:'احتياطي' },
-  { id:'A-012', assetNo:'AST-012', name:'جهاز تحليل غاز محمول', category:'معدات', type:'معدات قياس', brand:'Dräger', model:'X-am 8000', serialNo:'DR-XAM8-55891', purchaseDate:'2024-01-10', purchasePrice:22000, depreciationRate:20, status:'active', condition:'excellent', location:'ورشة الصيانة', department:'السلامة', assignedTo:'فريق السلامة', warrantyExpiry:'2027-01-10' },
-];
-
-const MAINTENANCE_RECORDS: AssetMaintenance[] = [
-  { id:'AM-001', assetId:'A-003', date:'2026-07-01', type:'preventive', description:'صيانة دورية للضاغط — تغيير زيت وفلتر', cost:1200, technician:'فني شركة Atlas Copco', nextDue:'2026-10-01', status:'done' },
-  { id:'AM-002', assetId:'A-004', date:'2026-09-10', type:'corrective', description:'إصلاح عطل في نظام الرفع الهيدروليكي', cost:3500, technician:'ورشة Toyota المعتمدة', nextDue:'2026-12-10', status:'pending' },
-  { id:'AM-003', assetId:'A-005', date:'2026-06-15', type:'preventive', description:'فحص سنوي وتنظيف الفلاتر', cost:450, technician:'فني Daikin معتمد', nextDue:'2026-12-15', status:'done' },
-  { id:'AM-004', assetId:'A-003', date:'2026-01-10', type:'inspection', description:'فحص ضغط وفحص أمان سنوي', cost:800, technician:'مفتش معتمد', nextDue:'2027-01-10', status:'done' },
-  { id:'AM-005', assetId:'A-010', date:'2026-08-20', type:'preventive', description:'تحديث برمجيات وفحص الكاميرات', cost:600, technician:'فني Hikvision', nextDue:'2027-02-20', status:'done' },
-  { id:'AM-006', assetId:'A-009', date:'2026-09-01', type:'preventive', description:'فحص وتنظيف غرفة الخوادم وتحديث النظام', cost:900, technician:'فريق تقنية المعلومات', nextDue:'2027-03-01', status:'done' },
-];
-
-const ASSET_DOCS: AssetDoc[] = [
-  { id:'AD-001', assetId:'A-001', name:'فاتورة الشراء', type:'invoice', issueDate:'2023-03-15' },
-  { id:'AD-002', assetId:'A-001', name:'شهادة الضمان', type:'warranty', issueDate:'2023-03-15', expiryDate:'2026-03-15' },
-  { id:'AD-003', assetId:'A-003', name:'شهادة فحص الأمان', type:'certificate', issueDate:'2026-01-10', expiryDate:'2027-01-10' },
-  { id:'AD-004', assetId:'A-003', name:'عقد الصيانة السنوي', type:'certificate', issueDate:'2026-01-01', expiryDate:'2026-12-31' },
-  { id:'AD-005', assetId:'A-009', name:'شهادة ضمان Dell', type:'warranty', issueDate:'2023-06-01', expiryDate:'2028-06-01' },
-  { id:'AD-006', assetId:'A-012', name:'شهادة معايرة وتدريب', type:'certificate', issueDate:'2024-01-10', expiryDate:'2027-01-10' },
-];
-
-const ASSET_ASSIGNMENTS: AssetAssignment[] = [
-  { id:'AA-001', assetId:'A-001', assignedTo:'محمد علي حسن', department:'تقنية المعلومات', location:'مكتب المديرية', from:'2023-03-15', notes:'تسليم مباشر' },
-  { id:'AA-002', assetId:'A-004', assignedTo:'خالد عمر', department:'العمليات', location:'مستودع أبوظبي', from:'2022-01-01', to:'2024-12-31', notes:'مؤقت — أعيد إلى المخزن' },
-  { id:'AA-003', assetId:'A-004', assignedTo:'فريق المستودع', department:'العمليات', location:'مستودع أبوظبي', from:'2025-01-01', notes:'تحت الصيانة حالياً' },
-];
-
-// ─── Asset Drawer ────────────────────────────────────────────────────────────
-const AssetDrawer: React.FC<{ asset: Asset | null; open: boolean; onClose: () => void }> = ({ asset, open, onClose }) => {
-  const [maintRev, setMaintRev] = useState(0);
-  const [addMaintOpen, setAddMaintOpen] = useState(false);
-  const [maintForm] = Form.useForm();
-
-  if (!asset) return null;
-  const a = asset;
-  void maintRev;
-
-  const aMaint = MAINTENANCE_RECORDS.filter(m => m.assetId === a.id).sort((x,y) => y.date.localeCompare(x.date));
-  const aDocs  = ASSET_DOCS.filter(d => d.assetId === a.id);
-  const aAssign = ASSET_ASSIGNMENTS.filter(x => x.assetId === a.id).sort((x,y) => y.from.localeCompare(x.from));
-  const cv = currentValue(a);
-  const deprPct = Math.max(0, Math.min(100, Math.round((1 - cv / a.purchasePrice) * 100)));
-  const totalMaintCost = aMaint.reduce((s, m) => s + m.cost, 0);
-
-  const tabItems = [
-    {
-      key: 'info',
-      label: <Space><AppstoreOutlined />معلومات عامة</Space>,
-      children: (
-        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-          <Card size="small" bordered={false} style={{ borderRadius:10, background:'linear-gradient(135deg,#f0f9f2,#e8f5e9)', border:'1px solid #c8e6c9' }}>
-            <Row gutter={12} align="middle">
-              <Col>
-                <Avatar size={54} style={{ background: CATEGORY_COLORS[a.category] || PRIMARY, fontSize:22 }}>
-                  {CATEGORY_ICONS[a.category] || <AppstoreOutlined />}
-                </Avatar>
-              </Col>
-              <Col flex={1}>
-                <div style={{ fontSize:15, fontWeight:700 }}>{a.name}</div>
-                <Space wrap style={{ marginTop:4 }}>
-                  <Tag color={CATEGORY_COLORS[a.category] || 'default'}>{a.category}</Tag>
-                  <Tag color={STATUS_MAP[a.status].color}>{STATUS_MAP[a.status].label}</Tag>
-                  <Tag color={COND_MAP[a.condition].color}>{COND_MAP[a.condition].label}</Tag>
-                </Space>
-              </Col>
-              <Col style={{ textAlign:'center' }}>
-                <div style={{ fontSize:10, color:'#888' }}>رقم الأصل</div>
-                <div style={{ fontWeight:700, fontFamily:'monospace', color:PRIMARY }}>{a.assetNo}</div>
-              </Col>
-            </Row>
-          </Card>
-
-          <Row gutter={10}>
-            {[
-              { label:'سعر الشراء', value:a.purchasePrice.toLocaleString()+' د.إ', color:'#333' },
-              { label:'القيمة الحالية', value:cv.toLocaleString()+' د.إ', color:PRIMARY },
-              { label:'تكلفة الصيانة', value:totalMaintCost.toLocaleString()+' د.إ', color:'#fa8c16' },
-            ].map((s, i) => (
-              <Col span={8} key={i}>
-                <Card size="small" bordered={false} style={{ textAlign:'center', background:'#f9fafb', borderRadius:8 }}>
-                  <div style={{ fontSize:10, color:'#888' }}>{s.label}</div>
-                  <div style={{ fontSize:15, fontWeight:700, color:s.color }}>{s.value}</div>
-                </Card>
-              </Col>
-            ))}
-          </Row>
-
-          <Card size="small" bordered={false} style={{ borderRadius:8 }}>
-            <div style={{ fontSize:11, color:'#888', marginBottom:4 }}>نسبة الإهلاك (منذ الشراء)</div>
-            <Progress percent={deprPct} strokeColor={deprPct>70?'#ff4d4f':deprPct>40?'#fa8c16':'#52c41a'} format={p=>`${p}% مهلك`} />
-          </Card>
-
-          <Descriptions size="small" column={2} bordered style={{ borderRadius:8 }}>
-            <Descriptions.Item label="النوع">{a.type}</Descriptions.Item>
-            <Descriptions.Item label="الماركة / الموديل">{a.brand} {a.model}</Descriptions.Item>
-            <Descriptions.Item label="الرقم التسلسلي"><Text copyable style={{fontFamily:'monospace',fontSize:11}}>{a.serialNo}</Text></Descriptions.Item>
-            <Descriptions.Item label="تاريخ الشراء">{a.purchaseDate}</Descriptions.Item>
-            <Descriptions.Item label="القسم">{a.department}</Descriptions.Item>
-            <Descriptions.Item label="الموقع">{a.location}</Descriptions.Item>
-            <Descriptions.Item label="مسؤول الأصل">{a.assignedTo}</Descriptions.Item>
-            <Descriptions.Item label="معدل الإهلاك">{a.depreciationRate}% / سنة</Descriptions.Item>
-            {a.warrantyExpiry && <Descriptions.Item label="انتهاء الضمان" span={2}>{expiryTag(a.warrantyExpiry)}</Descriptions.Item>}
-          </Descriptions>
-        </div>
-      ),
-    },
-    {
-      key: 'maintenance',
-      label: <Space><ToolOutlined />الصيانة</Space>,
-      children: (
-        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-          <div style={{ display:'flex', justifyContent:'flex-end' }}>
-            <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => setAddMaintOpen(true)} style={{ background:PRIMARY }}>
-              إضافة سجل صيانة
-            </Button>
-          </div>
-          {aMaint.length === 0 ? <Alert message="لا توجد سجلات صيانة" type="info" showIcon /> :
-            aMaint.map(m => (
-              <Card key={m.id} size="small" bordered={false} style={{ borderRadius:8, border:'1px solid #f0f0f0' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <Space>
-                    <Tag color={m.type==='preventive'?'green':m.type==='corrective'?'red':'blue'} style={{fontSize:10}}>
-                      {m.type==='preventive'?'وقائية':m.type==='corrective'?'تصحيحية':'فحص'}
-                    </Tag>
-                    <Text strong style={{fontSize:12}}>{m.date}</Text>
-                    <Tag color={m.status==='done'?'green':'orange'}>{m.status==='done'?'منجزة':'معلقة'}</Tag>
-                  </Space>
-                  <Text style={{ color:'#fa8c16', fontWeight:600, fontSize:12 }}>{m.cost.toLocaleString()} د.إ</Text>
-                </div>
-                <div style={{ fontSize:12, color:'#555', margin:'4px 0' }}>{m.description}</div>
-                <Space style={{fontSize:10, color:'#888'}}>
-                  <span>الفني: {m.technician}</span>
-                  {m.nextDue && <span>الموعد القادم: {m.nextDue}</span>}
-                </Space>
-              </Card>
-            ))
-          }
-        </div>
-      ),
-    },
-    {
-      key: 'docs',
-      label: <Space><FileTextOutlined />المستندات</Space>,
-      children: (
-        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          {aDocs.length === 0 ? <Alert message="لا توجد مستندات" type="info" showIcon /> :
-            aDocs.map(d => (
-              <Card key={d.id} size="small" bordered={false} style={{ borderRadius:8, border:'1px solid #f0f0f0' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <Space>
-                    <FileTextOutlined style={{ color:PRIMARY }} />
-                    <Text strong style={{fontSize:12}}>{d.name}</Text>
-                    <Tag color="blue" style={{fontSize:10}}>{d.type==='warranty'?'ضمان':d.type==='invoice'?'فاتورة':d.type==='certificate'?'شهادة':'مستند'}</Tag>
-                  </Space>
-                  {d.expiryDate && expiryTag(d.expiryDate)}
-                </div>
-                <Text type="secondary" style={{fontSize:10}}>تاريخ الإصدار: {d.issueDate}</Text>
-              </Card>
-            ))
-          }
-          <Button type="dashed" icon={<PlusOutlined />} block>إضافة مستند</Button>
-        </div>
-      ),
-    },
-    {
-      key: 'assignment',
-      label: <Space><HistoryOutlined />سجل التخصيص</Space>,
-      children: (
-        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-          {aAssign.length === 0 ? <Alert message="لا يوجد سجل تخصيص" type="info" showIcon /> :
-            aAssign.map(x => (
-              <Card key={x.id} size="small" bordered={false} style={{ borderRadius:8, background: !x.to ? '#f0f9f2' : '#fafafa', border:'1px solid #f0f0f0' }}>
-                <div style={{ display:'flex', justifyContent:'space-between' }}>
-                  <Space><UserOutlined style={{ color:PRIMARY }} /><Text strong style={{fontSize:12}}>{x.assignedTo}</Text><Tag color="purple" style={{fontSize:10}}>{x.department}</Tag></Space>
-                  {!x.to && <Tag color="green">حالياً</Tag>}
-                </div>
-                <div style={{ fontSize:11, color:'#888', marginTop:4 }}>{x.location} · {x.from}{x.to ? ` → ${x.to}` : ' → الآن'}</div>
-                {x.notes && <div style={{ fontSize:11, color:'#555' }}>{x.notes}</div>}
-              </Card>
-            ))
-          }
-          <Button type="dashed" icon={<PlusOutlined />} block>تخصيص جديد</Button>
-        </div>
-      ),
-    },
-  ];
-
-  return (
-    <>
-      <Drawer
-        open={open} onClose={onClose} width={580}
-        title={<Space><Avatar size="small" style={{ background: CATEGORY_COLORS[a.category] || PRIMARY }}>{CATEGORY_ICONS[a.category] || <AppstoreOutlined />}</Avatar><span>{a.name}</span></Space>}
-        extra={<Space><Tag color={STATUS_MAP[a.status].color}>{STATUS_MAP[a.status].label}</Tag><Button size="small" icon={<PrinterOutlined />}>طباعة</Button></Space>}
-      >
-        <Tabs items={tabItems} size="small" />
-      </Drawer>
-
-      <Modal
-        open={addMaintOpen} title={<Space><ToolOutlined />إضافة سجل صيانة</Space>}
-        onCancel={() => { setAddMaintOpen(false); maintForm.resetFields(); }}
-        onOk={() => maintForm.validateFields().then(vals => {
-          MAINTENANCE_RECORDS.push({ id:'AM-'+Date.now(), assetId:a.id, date:vals.date, type:vals.type, description:vals.description, cost:vals.cost||0, technician:vals.technician, nextDue:vals.nextDue, status:'done' });
-          setMaintRev(r => r+1); setAddMaintOpen(false); maintForm.resetFields();
-        })}
-        okText="حفظ" cancelText="إلغاء"
-      >
-        <Form form={maintForm} layout="vertical">
-          <Row gutter={12}>
-            <Col span={12}><Form.Item name="date" label="التاريخ" rules={[{required:true}]}><Input type="date" /></Form.Item></Col>
-            <Col span={12}><Form.Item name="type" label="نوع الصيانة" rules={[{required:true}]}>
-              <Select><Option value="preventive">وقائية</Option><Option value="corrective">تصحيحية</Option><Option value="inspection">فحص</Option></Select>
-            </Form.Item></Col>
-          </Row>
-          <Form.Item name="description" label="الوصف" rules={[{required:true}]}><TextArea rows={2} /></Form.Item>
-          <Row gutter={12}>
-            <Col span={12}><Form.Item name="cost" label="التكلفة (د.إ)"><InputNumber style={{width:'100%'}} min={0} /></Form.Item></Col>
-            <Col span={12}><Form.Item name="technician" label="الفني / الشركة" rules={[{required:true}]}><Input /></Form.Item></Col>
-          </Row>
-          <Form.Item name="nextDue" label="موعد الصيانة القادم"><Input type="date" /></Form.Item>
-        </Form>
-      </Modal>
-    </>
-  );
-};
-
-// ─── Assets Page ─────────────────────────────────────────────────────────────
 const AssetsPage: React.FC = () => {
-  const [selAsset, setSelAsset] = useState<Asset | null>(null);
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [addModalOpen, setAddModalOpen] = useState(false);
-  const [addForm] = Form.useForm();
-  const [filterCat, setFilterCat] = useState<string>('');
-  const [filterStatus, setFilterStatus] = useState<string>('');
-  const [filterDept, setFilterDept] = useState<string>('');
-  const [rev, setRev] = useState(0);
-  void rev;
+  const { can } = useAuth();
+  const canManage = can('assets.manage');
+  const { data: ref } = useReference('ar');
+  const [rows, setRows] = useState<Asset[]>([]);
+  const [cats, setCats] = useState<Lk[]>([]);
+  const [statuses, setStatuses] = useState<Lk[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [buildings, setBuildings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [key, setKey] = useState(0);
+  const [search, setSearch] = useState('');
+  const [cat, setCat] = useState<number | undefined>();
+  const [st, setSt] = useState<number | undefined>();
+  const [editing, setEditing] = useState<Asset | 'new' | null>(null);
+  const [assigning, setAssigning] = useState<Asset | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [vendors, setVendors] = useState<any[]>([]);
+  const [buying, setBuying] = useState<Asset | null>(null);
+  const [form] = Form.useForm();
+  const [buyForm] = Form.useForm();
+  const [assignForm] = Form.useForm();
 
-  const categories = [...new Set(ASSETS.map(a => a.category))];
-  const depts = [...new Set(ASSETS.map(a => a.department))];
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      api<Paged<Asset>>('/assets', { query: { pageSize: 0 } }),
+      api<Lk[]>('/lookups/ASSET_CATEGORY').catch(() => [] as Lk[]),
+      api<Lk[]>('/lookups/ASSET_STATUS').catch(() => [] as Lk[]),
+      api<any[]>('/employees/options').catch(() => []),
+      api<Paged<any>>('/buildings', { query: { pageSize: 0 } }).then(r => r.items).catch(() => []),
+      api<any[]>('/vendors/options').catch(() => []),
+    ]).then(([a, c, s, e, b, v]) => { setRows(a.items); setCats(c); setStatuses(s); setEmployees(e); setBuildings(b); setVendors(v); })
+      .catch(err => message.error(errorMessage(err))).finally(() => setLoading(false));
+  }, [key]);
 
-  const filtered = ASSETS.filter(a =>
-    (!filterCat || a.category === filterCat) &&
-    (!filterStatus || a.status === filterStatus) &&
-    (!filterDept || a.department === filterDept)
-  );
+  const lk = (list: Lk[], id?: number | null) => list.find(x => x.id === id);
+  const statusCode = (a: Asset) => lk(statuses, a.statusId)?.code ?? '';
+  const empName = (id?: number | null) => employees.find(e => e.id === id)?.name ?? null;
+  const bName = (id?: number | null) => { const b = buildings.find(x => x.id === id); return b ? `${b.code} — ${b.name ?? b.nameAr ?? ''}` : null; };
+  const brName = (id?: number | null) => locName(ref?.branches.find(b => b.id === id), true) || null;
+  const daysTo = (d?: string | null) => (d ? dayjs(d).startOf('day').diff(dayjs().startOf('day'), 'day') : null);
 
-  const totalPurchase = ASSETS.reduce((s,a) => s + a.purchasePrice, 0);
-  const totalCurrent  = ASSETS.reduce((s,a) => s + currentValue(a), 0);
-  const totalDepr     = totalPurchase - totalCurrent;
+  const s = search.trim().toLowerCase();
+  const shown = rows.filter(a => (!cat || a.categoryId === cat) && (!st || a.statusId === st)
+    && (!s || [a.assetCode, a.nameAr, a.nameEn, a.serialNo, empName(a.assignedEmployeeId)].some(x => (x ?? '').toLowerCase().includes(s))));
+  const byStatus = (code: string) => rows.filter(a => statusCode(a) === code).length;
+  const totalCost = rows.filter(a => !['retired', 'lost'].includes(statusCode(a))).reduce((x, a) => x + Number(a.purchaseCost ?? 0), 0);
+  const warranty = rows.filter(a => { const n = daysTo(a.warrantyExpiry); return n != null && n >= 0 && n <= 60; }).length;
 
-  const statCards = [
-    { label:'إجمالي الأصول', value: ASSETS.length, icon:<AppstoreOutlined />, color:'#1a5c2a' },
-    { label:'نشط', value: ASSETS.filter(a=>a.status==='active').length, icon:<CheckCircleOutlined />, color:'#52c41a' },
-    { label:'صيانة', value: ASSETS.filter(a=>a.status==='maintenance').length, icon:<ToolOutlined />, color:'#fa8c16' },
-    { label:'مستبعد', value: ASSETS.filter(a=>a.status==='disposed').length, icon:<AlertOutlined />, color:'#ff4d4f' },
-    { label:'سعر الشراء الإجمالي', value: totalPurchase.toLocaleString()+' د.إ', icon:<DollarOutlined />, color:'#1a5c2a' },
-    { label:'القيمة الدفترية الحالية', value: totalCurrent.toLocaleString()+' د.إ', icon:<DollarOutlined />, color:'#52c41a' },
-    { label:'إجمالي الإهلاك', value: totalDepr.toLocaleString()+' د.إ', icon:<AlertOutlined />, color:'#ff4d4f' },
-    { label:'سجلات صيانة', value: MAINTENANCE_RECORDS.length, icon:<ToolOutlined />, color:'#722ed1' },
-  ];
-
-  // Chart data
-  const catCounts: Record<string, number> = {};
-  const catValues: Record<string, number> = {};
-  ASSETS.forEach(a => {
-    catCounts[a.category] = (catCounts[a.category] || 0) + 1;
-    catValues[a.category] = (catValues[a.category] || 0) + currentValue(a);
+  const open = (a: Asset | 'new') => {
+    form.resetFields();
+    if (a === 'new') form.setFieldsValue({ purchaseDate: dayjs(), statusId: statuses.find(x => x.code === 'in_stock')?.id, vatRate: 5 });
+    else form.setFieldsValue({ ...a, purchaseDate: a.purchaseDate ? dayjs(a.purchaseDate) : undefined, warrantyExpiry: a.warrantyExpiry ? dayjs(a.warrantyExpiry) : undefined });
+    setEditing(a);
+  };
+  const body = (base: Partial<Asset>, f: any): Partial<Asset> => ({
+    ...base, assetCode: f.assetCode || null, nameAr: f.nameAr, nameEn: f.nameEn || null, categoryId: f.categoryId ?? null, statusId: f.statusId ?? null,
+    branchId: f.branchId ?? null, buildingId: f.buildingId ?? null, serialNo: f.serialNo || null, purchaseDate: f.purchaseDate ? f.purchaseDate.format('YYYY-MM-DD') : null,
+    purchaseCost: f.purchaseCost ?? null, assignedEmployeeId: f.assignedEmployeeId ?? null, warrantyExpiry: f.warrantyExpiry ? f.warrantyExpiry.format('YYYY-MM-DD') : null,
+    notes: f.notes || null,
   });
-  const catLabels = Object.keys(catCounts);
-  const statusCounts: Record<string, number> = {};
-  ASSETS.forEach(a => { statusCounts[a.status] = (statusCounts[a.status]||0)+1; });
-
-  // Maintenance cost by month (last 6 months)
-  const today2 = new Date();
-  const maintMonths = Array.from({length:6}, (_,i) => {
-    const d = new Date(today2.getFullYear(), today2.getMonth() - 5 + i, 1);
-    return { label:`${d.getMonth()+1}/${d.getFullYear()}`, year:d.getFullYear(), month:d.getMonth() };
-  });
-  const maintTrend = maintMonths.map(m =>
-    MAINTENANCE_RECORDS.filter(r => { const rd = new Date(r.date); return rd.getFullYear()===m.year && rd.getMonth()===m.month; }).reduce((s,r)=>s+r.cost,0)
-  );
-
-  const charts1: { title:string; opts:ApexCharts.ApexOptions; series:any; type:any; height?:number }[] = [
-    {
-      title: 'توزيع الفئات',
-      type: 'donut',
-      height: 240,
-      series: catLabels.map(c => catCounts[c]),
-      opts: {
-        labels: catLabels,
-        colors: catLabels.map((_,i) => ['#1a5c2a','#c9a84c','#2196f3','#ff5722','#9c27b0','#00bcd4'][i%6]),
-        legend: { position:'bottom', fontSize:'11px' },
-        dataLabels: { formatter:(v:number)=>v.toFixed(0) },
-        chart: { fontFamily:'Tajawal,sans-serif' },
-      },
-    },
-    {
-      title: 'عدد الأصول حسب الحالة',
-      type: 'bar',
-      height: 240,
-      series: [{ name:'عدد', data: Object.values(statusCounts) }],
-      opts: {
-        chart: { fontFamily:'Tajawal,sans-serif', toolbar:{show:false} },
-        xaxis: { categories: Object.keys(statusCounts).map(s=>STATUS_MAP[s as keyof typeof STATUS_MAP]?.label||s), labels:{style:{fontSize:'11px'}} },
-        colors: [PRIMARY],
-        plotOptions: { bar: { borderRadius:6, columnWidth:'50%' } },
-        dataLabels: { enabled:true },
-        yaxis: { title: { text:'' } },
-      },
-    },
-    {
-      title: 'القيمة الحالية حسب الفئة (د.إ)',
-      type: 'bar',
-      height: 240,
-      series: [{ name:'القيمة', data: catLabels.map(c=>catValues[c]) }],
-      opts: {
-        chart: { fontFamily:'Tajawal,sans-serif', toolbar:{show:false} },
-        xaxis: { categories: catLabels, labels:{style:{fontSize:'10px'}} },
-        colors: [GOLD],
-        plotOptions: { bar: { borderRadius:6, horizontal:true } },
-        dataLabels: { enabled:false },
-        tooltip: { y:{ formatter:(v:number)=>v.toLocaleString()+' د.إ' } },
-      },
-    },
-  ];
-
-  const charts2: { title:string; opts:ApexCharts.ApexOptions; series:any; type:any; height?:number }[] = [
-    {
-      title: 'تكلفة الصيانة (آخر 6 أشهر)',
-      type: 'area',
-      height: 220,
-      series: [{ name:'تكلفة الصيانة', data: maintTrend }],
-      opts: {
-        chart: { fontFamily:'Tajawal,sans-serif', toolbar:{show:false}, sparkline:{enabled:false} },
-        xaxis: { categories: maintMonths.map(m=>m.label), labels:{style:{fontSize:'10px'}} },
-        colors: ['#722ed1'],
-        fill: { type:'gradient', gradient:{shadeIntensity:1, opacityFrom:0.4, opacityTo:0.05} },
-        stroke: { curve:'smooth', width:2 },
-        dataLabels: { enabled:false },
-        tooltip: { y:{ formatter:(v:number)=>v.toLocaleString()+' د.إ' } },
-      },
-    },
-    {
-      title: 'نسبة الإهلاك الإجمالية',
-      type: 'radialBar',
-      height: 220,
-      series: [Math.round((totalDepr / totalPurchase) * 100)],
-      opts: {
-        chart: { fontFamily:'Tajawal,sans-serif' },
-        plotOptions: { radialBar: { hollow:{ size:'60%' }, dataLabels:{ name:{ fontSize:'13px' }, value:{ fontSize:'22px', fontWeight:700 } } } },
-        labels: ['مهلك'],
-        colors: ['#ff4d4f'],
-      },
-    },
-    {
-      title: 'عدد الأصول حسب الحالة (دائرة)',
-      type: 'pie',
-      height: 220,
-      series: Object.values(statusCounts),
-      opts: {
-        chart: { fontFamily:'Tajawal,sans-serif' },
-        labels: Object.keys(statusCounts).map(s=>STATUS_MAP[s as keyof typeof STATUS_MAP]?.label||s),
-        colors: ['#52c41a','#fa8c16','#ff4d4f','#1890ff','#999'],
-        legend: { position:'bottom', fontSize:'11px' },
-        dataLabels: { formatter:(v:number)=>v.toFixed(0)+'%' },
-      },
-    },
-  ];
-
-  const columns = [
-    { title:'رقم الأصل', dataIndex:'assetNo', key:'assetNo', render:(v:string)=><Text code style={{fontSize:11}}>{v}</Text> },
-    { title:'الاسم', dataIndex:'name', key:'name', render:(v:string, r:Asset)=>
-        <Space><Avatar size="small" style={{background:CATEGORY_COLORS[r.category]||PRIMARY,fontSize:12}}>{CATEGORY_ICONS[r.category]||<AppstoreOutlined/>}</Avatar><span style={{fontSize:13,fontWeight:500}}>{v}</span></Space>
-    },
-    { title:'الفئة', dataIndex:'category', key:'category', render:(v:string)=><Tag>{v}</Tag> },
-    { title:'القسم', dataIndex:'department', key:'department', render:(v:string)=><Text style={{fontSize:12}}>{v}</Text> },
-    { title:'الحالة', dataIndex:'status', key:'status', render:(v:string)=>{const m=STATUS_MAP[v as keyof typeof STATUS_MAP]; return <Tag color={m?.color}>{m?.label}</Tag>;} },
-    { title:'التقييم', dataIndex:'condition', key:'condition', render:(v:string)=>{const m=COND_MAP[v as keyof typeof COND_MAP]; return <Tag color={m?.color}>{m?.label}</Tag>;} },
-    { title:'القيمة الحالية', key:'cv', render:(_:any,r:Asset)=><Text strong style={{color:PRIMARY}}>{currentValue(r).toLocaleString()} د.إ</Text> },
-    { title:'إجراءات', key:'act', render:(_:any,r:Asset)=>
-        <Button size="small" onClick={()=>{setSelAsset(r); setDrawerOpen(true);}}>
-          التفاصيل
-        </Button>
-    },
-  ];
+  const save = async () => {
+    const f = await form.validateFields();
+    setSaving(true);
+    try {
+      if (editing === 'new') {
+        const created = await api<Asset>('/assets', { method: 'POST', body: body({}, f) });
+        if (f.vendorId && created?.id) {
+          // bought from a supplier → vendor bill: Dr fixed assets + VAT input / Cr supplier
+          try {
+            const r = await api<any>(`/assets/${created.id}/purchase`, { method: 'POST', body: { vendorId: f.vendorId, billNo: f.billNo, billDate: f.purchaseDate ? f.purchaseDate.format('YYYY-MM-DD') : null, branchId: f.branchId ?? null, vatRate: f.vatRate ?? 0 } });
+            message.success(`تم حفظ الأصل وتسجيل فاتورة الشراء ${r.billNo}`);
+          } catch (err) { message.warning(`تم حفظ الأصل، لكن لم تُسجل فاتورة الشراء: ${errorMessage(err)}`, 8); }
+        } else message.success('تم حفظ الأصل');
+      } else {
+        await api(`/assets/${(editing as Asset).id}`, { method: 'PUT', body: body(editing as Asset, f) });
+        message.success('تم حفظ الأصل');
+      }
+      setEditing(null); setKey(k => k + 1);
+    } catch (err) { message.error(errorMessage(err), 6); } finally { setSaving(false); }
+  };
+  const saveAssign = async () => {
+    if (!assigning) return;
+    const f = await assignForm.validateFields();
+    const statusId = statuses.find(x => x.code === (f.assignedEmployeeId ? 'in_use' : 'in_stock'))?.id ?? assigning.statusId;
+    setSaving(true);
+    try {
+      await api(`/assets/${assigning.id}`, { method: 'PUT', body: { ...assigning, assignedEmployeeId: f.assignedEmployeeId ?? null, buildingId: f.buildingId ?? null, statusId } });
+      message.success(f.assignedEmployeeId ? 'تم تسليم الأصل' : 'تم إرجاع الأصل للمخزن'); setAssigning(null); setKey(k => k + 1);
+    } catch (err) { message.error(errorMessage(err), 6); } finally { setSaving(false); }
+  };
+  const openBuy = (a: Asset) => { buyForm.resetFields(); buyForm.setFieldsValue({ billDate: a.purchaseDate ? dayjs(a.purchaseDate) : dayjs(), vatRate: 5, branchId: a.branchId ?? undefined }); setBuying(a); };
+  const saveBuy = async () => {
+    if (!buying) return;
+    const f = await buyForm.validateFields();
+    setSaving(true);
+    try {
+      const r = await api<any>(`/assets/${buying.id}/purchase`, { method: 'POST', body: { vendorId: f.vendorId, billNo: f.billNo, billDate: f.billDate?.format('YYYY-MM-DD') ?? null, branchId: f.branchId ?? null, vatRate: f.vatRate ?? 0 } });
+      message.success(`تم تسجيل فاتورة الشراء ${r.billNo} — ${Number(r.totalAmount).toLocaleString()} د.إ`); setBuying(null); setKey(k => k + 1);
+    } catch (err) { message.error(errorMessage(err), 6); } finally { setSaving(false); }
+  };
+  const remove = async (a: Asset) => {
+    try { await api(`/assets/${a.id}`, { method: 'DELETE' }); message.success('تم حذف الأصل'); setKey(k => k + 1); } catch (err) { message.error(errorMessage(err), 6); }
+  };
 
   return (
-    <div style={{ padding:20, direction:'rtl', fontFamily:'Tajawal,sans-serif', minHeight:'100vh', background:'#f5f7fa' }}>
-      {/* Header */}
-      <div style={{ marginBottom:20, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:10 }}>
-        <div>
-          <Title level={3} style={{ margin:0, color:PRIMARY }}><AppstoreOutlined /> إدارة الأصول</Title>
-          <Text type="secondary">تتبع وتدير جميع أصول الشركة</Text>
+    <div>
+      <div style={{ background: `linear-gradient(135deg, ${PRIMARY} 0%, ${DARK} 100%)`, borderBottom: `3px solid ${GOLD}`, borderRadius: 14, padding: '16px 20px', marginBottom: 14,
+        display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <span style={{ width: 46, height: 46, borderRadius: 12, background: 'rgba(201,168,76,.18)', color: GOLD, fontSize: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><AppstoreOutlined /></span>
+        <div style={{ flex: 1 }}>
+          <div style={{ color: '#fff', fontWeight: 700, fontSize: 18 }}>الأصول</div>
+          <div style={{ color: 'rgba(255,255,255,.7)', fontSize: 12.5 }}>معدات وأدوات وأجهزة الشركة: الموقع، العهدة، التكلفة والضمان</div>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={()=>setAddModalOpen(true)} style={{ background:PRIMARY }}>
-          إضافة أصل جديد
-        </Button>
+        <Button icon={<ReloadOutlined />} onClick={() => setKey(k => k + 1)}>تحديث</Button>
+        {canManage && <Button type="primary" icon={<PlusOutlined />} style={{ background: GOLD, borderColor: GOLD, color: DARK }} onClick={() => open('new')}>أصل جديد</Button>}
       </div>
 
-      {/* Stat Cards */}
-      <Row gutter={[12,12]} style={{ marginBottom:20 }}>
-        {statCards.map((s,i) => (
-          <Col key={i} xs={12} sm={6} md={3}>
-            <Card size="small" bordered={false} style={{ borderRadius:12, textAlign:'center', background:'#fff', boxShadow:'0 2px 8px rgba(0,0,0,0.07)' }}>
-              <div style={{ fontSize:22, color:s.color }}>{s.icon}</div>
-              <div style={{ fontSize:i<4?22:13, fontWeight:700, color:s.color, lineHeight:1.2 }}>{s.value}</div>
-              <div style={{ fontSize:10, color:'#888' }}>{s.label}</div>
+      <Row gutter={[10, 10]} style={{ marginBottom: 14 }}>
+        {[
+          { label: 'إجمالي الأصول', value: rows.length, color: PRIMARY, bg: '#e8f5e9', icon: <AppstoreOutlined /> },
+          { label: 'قيمة الأصول القائمة', value: `${Math.round(totalCost).toLocaleString()} د.إ`, color: '#722ed1', bg: '#f9f0ff', icon: <DollarOutlined /> },
+          { label: 'قيد الاستخدام', value: byStatus('in_use'), color: '#52c41a', bg: '#f6ffed', icon: <ToolOutlined /> },
+          { label: 'في المخزن', value: byStatus('in_stock'), color: '#1677ff', bg: '#e6f4ff', icon: <InboxOutlined /> },
+          { label: 'تحت الصيانة', value: byStatus('maintenance'), color: '#fa8c16', bg: '#fff7e6', icon: <ToolOutlined /> },
+          { label: 'ضمان ينتهي خلال 60 يوم', value: warranty, color: '#ff4d4f', bg: '#fff1f0', icon: <WarningOutlined /> },
+        ].map(k => (
+          <Col xs={12} md={8} xl={4} key={k.label}>
+            <Card size="small" bordered={false} style={{ borderRadius: 10, background: k.bg }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 22, color: k.color }}>{k.icon}</span>
+                <div><div style={{ fontSize: 18, fontWeight: 700, color: k.color }}>{k.value}</div><div style={{ fontSize: 11, color: '#666' }}>{k.label}</div></div>
+              </div>
             </Card>
           </Col>
         ))}
       </Row>
 
-      {/* Charts Row 1 */}
-      <Row gutter={[14,14]} style={{ marginBottom:14 }}>
-        {charts1.map((c,i) => (
-          <Col key={i} xs={24} md={8}>
-            <Card size="small" bordered={false} style={{ borderRadius:12, boxShadow:'0 2px 8px rgba(0,0,0,0.07)' }} title={<Text style={{fontSize:12,fontWeight:600}}>{c.title}</Text>}>
-              <ReactApexChart type={c.type} series={c.series} options={c.opts} height={c.height||220} />
-            </Card>
-          </Col>
-        ))}
-      </Row>
-
-      {/* Charts Row 2 */}
-      <Row gutter={[14,14]} style={{ marginBottom:20 }}>
-        {charts2.map((c,i) => (
-          <Col key={i} xs={24} md={8}>
-            <Card size="small" bordered={false} style={{ borderRadius:12, boxShadow:'0 2px 8px rgba(0,0,0,0.07)' }} title={<Text style={{fontSize:12,fontWeight:600}}>{c.title}</Text>}>
-              <ReactApexChart type={c.type} series={c.series} options={c.opts} height={c.height||220} />
-            </Card>
-          </Col>
-        ))}
-      </Row>
-
-      {/* Filters + Table */}
-      <Card bordered={false} style={{ borderRadius:12, boxShadow:'0 2px 8px rgba(0,0,0,0.07)' }}>
-        <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:14 }}>
-          <Select placeholder="فلتر: الفئة" allowClear style={{minWidth:140}} onChange={v=>setFilterCat(v||'')}>
-            {categories.map(c=><Option key={c} value={c}>{c}</Option>)}
-          </Select>
-          <Select placeholder="فلتر: الحالة" allowClear style={{minWidth:130}} onChange={v=>setFilterStatus(v||'')}>
-            {Object.entries(STATUS_MAP).map(([k,v])=><Option key={k} value={k}>{v.label}</Option>)}
-          </Select>
-          <Select placeholder="فلتر: القسم" allowClear style={{minWidth:150}} onChange={v=>setFilterDept(v||'')}>
-            {depts.map(d=><Option key={d} value={d}>{d}</Option>)}
-          </Select>
-          <Text type="secondary" style={{ marginRight:'auto', lineHeight:'32px', fontSize:12 }}>{filtered.length} من {ASSETS.length} أصل</Text>
-        </div>
-        <Table
-          dataSource={filtered} rowKey="id" columns={columns} size="small"
-          scroll={{ x:true }}
-          onRow={r => ({ onClick: ()=>{setSelAsset(r); setDrawerOpen(true);}, style:{cursor:'pointer'} })}
-          pagination={{ pageSize:10, showTotal:(t,range)=>`${range[0]}-${range[1]} من ${t}` }}
-        />
+      <Card bordered={false} style={{ borderRadius: 14 }}>
+        <Space wrap style={{ marginBottom: 12 }}>
+          <Input.Search allowClear placeholder="بحث بالرمز، الاسم، الرقم التسلسلي، الموظف…" style={{ width: 280 }} onChange={e => setSearch(e.target.value)} />
+          <Select allowClear placeholder="الفئة" style={{ width: 160 }} value={cat} onChange={setCat} options={cats.map(c => ({ value: c.id, label: c.label }))} />
+          <Select allowClear placeholder="الحالة" style={{ width: 150 }} value={st} onChange={setSt} options={statuses.map(c => ({ value: c.id, label: c.label }))} />
+        </Space>
+        <Table<Asset> size="small" rowKey="id" loading={loading} dataSource={shown} scroll={{ x: 1150 }} pagination={{ pageSize: 20, hideOnSinglePage: true }}
+          locale={{ emptyText: <Empty description="لا توجد أصول مسجلة" /> }}
+          columns={[
+            { title: 'الرمز', dataIndex: 'assetCode', width: 100, render: v => <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</Text> },
+            { title: 'الأصل', key: 'n', render: (_, a) => <div><Text strong>{aName(a)}</Text>{a.serialNo && <div style={{ fontSize: 11, color: '#888', direction: 'ltr', textAlign: 'end' }}>S/N {a.serialNo}</div>}</div> },
+            { title: 'الفئة', dataIndex: 'categoryId', render: v => lk(cats, v)?.label ?? '—' },
+            { title: 'الحالة', key: 'st', render: (_, a) => { const x = lk(statuses, a.statusId); return x ? <Tag color={STATUS_COLOR[x.code]}>{x.label}</Tag> : '—'; } },
+            { title: 'الموقع', key: 'loc', render: (_, a) => <div style={{ fontSize: 12 }}>{bName(a.buildingId) ?? brName(a.branchId) ?? '—'}</div> },
+            { title: 'في عهدة', dataIndex: 'assignedEmployeeId', render: v => empName(v) ?? <Text type="secondary" style={{ fontSize: 11 }}>—</Text> },
+            { title: 'الشراء', key: 'p', render: (_, a) => <div style={{ fontSize: 12 }}>{a.purchaseCost != null ? `${Number(a.purchaseCost).toLocaleString()} د.إ` : '—'}{a.purchaseDate && <div style={{ color: '#888', fontSize: 11 }}>{a.purchaseDate}</div>}</div> },
+            { title: 'الضمان', dataIndex: 'warrantyExpiry', render: v => { const n = daysTo(v); if (n == null) return '—';
+              return <div style={{ fontSize: 12 }}>{v}<div>{n < 0 ? <Tag style={{ fontSize: 10 }}>منتهٍ</Tag> : n <= 60 ? <Tag color="warning" style={{ fontSize: 10 }}>خلال {n} يوم</Tag> : <Tag color="success" style={{ fontSize: 10 }}>ساري</Tag>}</div></div>; } },
+            { title: '', key: 'a', width: 150, render: (_, a) => canManage && (
+              <Space size={2}>
+                {Number(a.purchaseCost ?? 0) > 0 && <Tooltip title="تسجيل فاتورة الشراء من المورد"><Button size="small" type="text" icon={<ShoppingCartOutlined />} onClick={() => openBuy(a)} /></Tooltip>}
+                <Tooltip title="تسليم / إرجاع"><Button size="small" type="text" icon={<SwapOutlined />} onClick={() => { assignForm.setFieldsValue({ assignedEmployeeId: a.assignedEmployeeId, buildingId: a.buildingId }); setAssigning(a); }} /></Tooltip>
+                <Button size="small" type="text" icon={<EditOutlined />} onClick={() => open(a)} />
+                <Popconfirm title="حذف الأصل؟" okText="حذف" cancelText="إلغاء" onConfirm={() => remove(a)}><Button size="small" type="text" danger icon={<DeleteOutlined />} /></Popconfirm>
+              </Space>) },
+          ]} />
       </Card>
 
-      {/* Add Asset Modal */}
-      <Modal
-        open={addModalOpen}
-        title={<Space><PlusOutlined />إضافة أصل جديد</Space>}
-        onCancel={()=>{setAddModalOpen(false); addForm.resetFields();}}
-        onOk={()=>addForm.validateFields().then(vals=>{
-          ASSETS.push({
-            id:'A-'+Date.now(), assetNo:'AST-'+String(ASSETS.length+1).padStart(3,'0'),
-            name:vals.name, category:vals.category, type:vals.type||'',
-            brand:vals.brand||'', model:vals.model||'', serialNo:vals.serialNo||'',
-            purchaseDate:vals.purchaseDate, purchasePrice:vals.purchasePrice||0,
-            depreciationRate:vals.depreciationRate||10,
-            status:'active', condition:'excellent',
-            location:vals.location||'', department:vals.department||'',
-            assignedTo:vals.assignedTo||'', warrantyExpiry:vals.warrantyExpiry, notes:vals.notes,
-          });
-          setRev(r=>r+1); setAddModalOpen(false); addForm.resetFields();
-        })}
-        width={620} okText="حفظ" cancelText="إلغاء"
-      >
-        <Form form={addForm} layout="vertical">
+      <Modal open={editing != null} title={editing === 'new' ? 'أصل جديد' : 'تعديل الأصل'} okText="حفظ" cancelText="إلغاء" onOk={save}
+        confirmLoading={saving} onCancel={() => setEditing(null)} destroyOnClose width={700}>
+        <Form form={form} layout="vertical">
           <Row gutter={12}>
-            <Col span={16}><Form.Item name="name" label="اسم الأصل" rules={[{required:true}]}><Input /></Form.Item></Col>
-            <Col span={8}><Form.Item name="category" label="الفئة" rules={[{required:true}]}>
-              <Select>{categories.map(c=><Option key={c} value={c}>{c}</Option>)}</Select>
+            <Col span={12}><Form.Item name="nameAr" label="اسم الأصل" rules={[{ required: true, message: 'مطلوب' }]}><Input /></Form.Item></Col>
+            <Col span={12}><Form.Item name="nameEn" label="الاسم بالإنجليزية"><Input dir="ltr" /></Form.Item></Col>
+            <Col span={12}><Form.Item name="assetCode" label="رمز الأصل" extra={editing === 'new' ? 'يُولَّد تلقائياً إن تُرك فارغاً' : undefined}><Input dir="ltr" /></Form.Item></Col>
+            <Col span={12}><Form.Item name="serialNo" label="الرقم التسلسلي"><Input dir="ltr" /></Form.Item></Col>
+            <Col span={12}><Form.Item name="categoryId" label="الفئة" rules={[{ required: true, message: 'اختر الفئة' }]}><Select options={cats.map(c => ({ value: c.id, label: c.label }))} /></Form.Item></Col>
+            <Col span={12}><Form.Item name="statusId" label="الحالة"><Select options={statuses.map(c => ({ value: c.id, label: c.label }))} /></Form.Item></Col>
+            <Col span={12}><Form.Item name="branchId" label="الفرع"><Select allowClear options={(ref?.branches ?? []).map(b => ({ value: b.id, label: locName(b, true) }))} /></Form.Item></Col>
+            <Col span={12}><Form.Item name="buildingId" label="المبنى (إن كان مركباً في مبنى)">
+              <Select allowClear showSearch optionFilterProp="label" options={buildings.map(b => ({ value: b.id, label: `${b.code} — ${b.name ?? b.nameAr ?? ''}` }))} />
             </Form.Item></Col>
+            <Col span={12}><Form.Item name="assignedEmployeeId" label="في عهدة الموظف">
+              <Select allowClear showSearch optionFilterProp="label" options={employees.map(e => ({ value: e.id, label: `${e.name}${e.employeeNo ? ` — ${e.employeeNo}` : ''}` }))} />
+            </Form.Item></Col>
+            <Col span={12}><Form.Item name="purchaseDate" label="تاريخ الشراء"><DatePicker style={{ width: '100%' }} disabledDate={d => d.isAfter(dayjs(), 'day')} /></Form.Item></Col>
+            <Col span={12}><Form.Item name="purchaseCost" label="تكلفة الشراء (د.إ)"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+            <Col span={12}><Form.Item name="warrantyExpiry" label="انتهاء الضمان"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col span={24}><Form.Item name="notes" label="ملاحظات"><Input.TextArea rows={2} /></Form.Item></Col>
+            {editing === 'new' && (<>
+              <Col span={24}><Text type="secondary" style={{ fontSize: 12 }}>شراء من مورد (اختياري) — تُسجل فاتورة مشتريات للمورد ويُقيد الأصل في حساب الأصول الثابتة</Text></Col>
+              <Col span={10}><Form.Item name="vendorId" label="المورد"><Select allowClear showSearch optionFilterProp="label" options={vendors.map(v => ({ value: v.id, label: v.name }))} /></Form.Item></Col>
+              <Col span={8}><Form.Item name="billNo" label="رقم فاتورة المورد" dependencies={['vendorId']}
+                rules={[({ getFieldValue }) => ({ validator: (_, v) => (!getFieldValue('vendorId') || (v && v.trim()) ? Promise.resolve() : Promise.reject(new Error('مطلوب'))) })]}><Input dir="ltr" /></Form.Item></Col>
+              <Col span={6}><Form.Item name="vatRate" label="الضريبة %"><InputNumber min={0} max={100} style={{ width: '100%' }} /></Form.Item></Col>
+            </>)}
           </Row>
-          <Row gutter={12}>
-            <Col span={8}><Form.Item name="brand" label="الماركة"><Input /></Form.Item></Col>
-            <Col span={8}><Form.Item name="model" label="الموديل"><Input /></Form.Item></Col>
-            <Col span={8}><Form.Item name="serialNo" label="الرقم التسلسلي"><Input /></Form.Item></Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={8}><Form.Item name="purchaseDate" label="تاريخ الشراء" rules={[{required:true}]}><Input type="date" /></Form.Item></Col>
-            <Col span={8}><Form.Item name="purchasePrice" label="سعر الشراء (د.إ)" rules={[{required:true}]}><InputNumber style={{width:'100%'}} min={0} /></Form.Item></Col>
-            <Col span={8}><Form.Item name="depreciationRate" label="معدل الإهلاك (%)"><InputNumber style={{width:'100%'}} min={0} max={100} /></Form.Item></Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={8}><Form.Item name="department" label="القسم"><Select>{depts.map(d=><Option key={d} value={d}>{d}</Option>)}</Select></Form.Item></Col>
-            <Col span={8}><Form.Item name="location" label="الموقع"><Input /></Form.Item></Col>
-            <Col span={8}><Form.Item name="assignedTo" label="مسؤول الأصل"><Input /></Form.Item></Col>
-          </Row>
-          <Row gutter={12}>
-            <Col span={12}><Form.Item name="warrantyExpiry" label="انتهاء الضمان"><Input type="date" /></Form.Item></Col>
-            <Col span={12}><Form.Item name="type" label="نوع الأصل"><Input /></Form.Item></Col>
-          </Row>
-          <Form.Item name="notes" label="ملاحظات"><TextArea rows={2} /></Form.Item>
         </Form>
       </Modal>
 
-      {/* Asset Drawer */}
-      <AssetDrawer asset={selAsset} open={drawerOpen} onClose={()=>setDrawerOpen(false)} />
+      <Modal open={!!buying} title={`فاتورة شراء الأصل — ${aName(buying)}`} okText="تسجيل" cancelText="إلغاء" onOk={saveBuy} confirmLoading={saving} onCancel={() => setBuying(null)} destroyOnClose>
+        <Text type="secondary" style={{ display: 'block', marginBottom: 10, fontSize: 12 }}>
+          التكلفة {Number(buying?.purchaseCost ?? 0).toLocaleString()} د.إ — القيد: مدين الأصول الثابتة + ضريبة المدخلات / دائن المورد
+        </Text>
+        <Form form={buyForm} layout="vertical">
+          <Form.Item name="vendorId" label="المورد" rules={[{ required: true, message: 'اختر المورد' }]}><Select showSearch optionFilterProp="label" options={vendors.map(v => ({ value: v.id, label: v.name }))} /></Form.Item>
+          <Row gutter={12}>
+            <Col span={12}><Form.Item name="billNo" label="رقم فاتورة المورد" rules={[{ required: true, message: 'مطلوب' }]}><Input dir="ltr" /></Form.Item></Col>
+            <Col span={12}><Form.Item name="billDate" label="تاريخ الفاتورة"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+            <Col span={12}><Form.Item name="vatRate" label="الضريبة %"><InputNumber min={0} max={100} style={{ width: '100%' }} /></Form.Item></Col>
+            <Col span={12}><Form.Item name="branchId" label="الفرع"><Select allowClear options={(ref?.branches ?? []).map(b => ({ value: b.id, label: locName(b, true) }))} /></Form.Item></Col>
+          </Row>
+        </Form>
+      </Modal>
+
+      <Modal open={!!assigning} title={`تسليم / إرجاع — ${aName(assigning)}`} okText="حفظ" cancelText="إلغاء" onOk={saveAssign} confirmLoading={saving}
+        onCancel={() => setAssigning(null)} destroyOnClose>
+        <Form form={assignForm} layout="vertical">
+          <Form.Item name="assignedEmployeeId" label="الموظف المستلم" extra="اتركه فارغاً لإرجاع الأصل إلى المخزن">
+            <Select allowClear showSearch optionFilterProp="label" options={employees.map(e => ({ value: e.id, label: e.name }))} />
+          </Form.Item>
+          <Form.Item name="buildingId" label="الموقع (مبنى)">
+            <Select allowClear showSearch optionFilterProp="label" options={buildings.map(b => ({ value: b.id, label: `${b.code} — ${b.name ?? b.nameAr ?? ''}` }))} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 };

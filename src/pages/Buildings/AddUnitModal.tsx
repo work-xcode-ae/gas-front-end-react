@@ -2,17 +2,16 @@ import React, { useState } from 'react';
 import {
   Modal, Form, Input, InputNumber, Select, Button, Table, Radio,
   Row, Col, Divider, Space, Typography, Tag, Tooltip, message,
-  Switch, Tabs, Badge
+  Badge
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, HomeOutlined, AppstoreAddOutlined,
   SettingOutlined, CopyOutlined, ExclamationCircleOutlined
 } from '@ant-design/icons';
 
-const { Text, Title } = Typography;
+const { Text } = Typography;
 const { Option } = Select;
 const PRIMARY = '#1a5c2a';
-const GOLD = '#c9a84c';
 
 interface UnitRow {
   key: string;
@@ -461,7 +460,7 @@ const AddUnitModal: React.FC<AddUnitModalProps> = ({
                   placeholder="45,000"
                   addonAfter="د.إ"
                   formatter={v => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={v => v ? parseFloat(v.replace(/[^0-9.]/g, '')) : 0}
+                  parser={((v?: string) => (v ? parseFloat(v.replace(/[^0-9.]/g, '')) : 0)) as any}
                 />
               </Form.Item>
             </Col>

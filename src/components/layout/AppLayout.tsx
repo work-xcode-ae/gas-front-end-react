@@ -1,14 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, Button, Badge, Avatar, Input, Select, DatePicker, Space, Dropdown } from 'antd';
+import { Layout, Menu, Button, Badge, Avatar, Input, Select, DatePicker, Dropdown } from 'antd';
 import {
   HomeOutlined, BankOutlined, AppstoreOutlined, TeamOutlined,
   FileTextOutlined, ToolOutlined, DashboardOutlined, FileDoneOutlined, CarOutlined,
   DollarOutlined, WarningOutlined, CustomerServiceOutlined, ThunderboltOutlined,
   BarChartOutlined, UserOutlined, SettingOutlined, BellOutlined,
-  GlobalOutlined, PlusOutlined, SearchOutlined, CalendarOutlined, RightOutlined
-} from '@ant-design/icons';
+  GlobalOutlined, PlusOutlined, CalendarOutlined, RightOutlined
+, CalculatorOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { useAuth } from '../../auth/AuthContext';
+import { api } from '../../api/client';
+import { track, installGlobalTracking } from '../../api/track';
+import SessionsModal from '../SessionsModal';
+import { GlobalFiltersProvider, useGlobalFilters } from '../../context/GlobalFilters';
+import { useReference, locName } from '../../api/reference';
 
 const { Sider, Content } = Layout;
 
@@ -48,8 +54,26 @@ const SkylineSVG = () => (
   </svg>
 );
 
-const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
+const AppLayoutInner: React.FC<AppLayoutProps> = ({ children }) => {
   const { t, i18n } = useTranslation();
+  const filters = useGlobalFilters();
+  const { data: ref } = useReference(i18n.language);
+  const [searchText, setSearchText] = useState('');
+  /** pages that apply the header filters today (the others still show sample data) */
+  const FILTER_PAGES = ['/buildings'];
+  const runSearch = (text: string) => {
+    filters.submitSearch(text);
+    if (text.trim() && !FILTER_PAGES.includes(location.pathname)) navigate('/buildings');
+  };
+  const quickAdd = {
+    items: [
+      { key: '/buildings?new=1', icon: <BankOutlined />, label: isRTLLabel('مبنى جديد', 'New building') },
+      { key: '/buildings', icon: <AppstoreOutlined />, label: isRTLLabel('وحدة / مستأجر / عداد — من مخطط المبنى', 'Unit / tenant / meter — from the building plan') },
+      { key: '/settings', icon: <FileTextOutlined />, label: isRTLLabel('بند شروط وأحكام', 'Terms & conditions item') },
+    ],
+    onClick: ({ key }: { key: string }) => navigate(key),
+  };
+  function isRTLLabel(ar: string, en: string) { return i18n.language === 'ar' ? ar : en; }
   const navigate = useNavigate();
   const location = useLocation();
   const isRTL = i18n.language === 'ar';
@@ -87,6 +111,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     { key: '/meters', icon: <DashboardOutlined />, label: t('nav.meters') },
     { key: '/invoices', icon: <FileDoneOutlined />, label: t('nav.invoices') },
     { key: '/payments', icon: <DollarOutlined />, label: t('nav.payments') },
+    { key: '/accounting', icon: <CalculatorOutlined />, label: i18n.language === 'ar' ? 'المحاسبة' : 'Accounting' },
     { key: '/overdue', icon: <WarningOutlined />, label: t('nav.overdue') },
     { key: '/service-requests', icon: <CustomerServiceOutlined />, label: t('nav.serviceRequests') },
     { key: '/maintenance', icon: <ThunderboltOutlined />, label: t('nav.maintenance') },
@@ -98,11 +123,40 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     { key: '/settings', icon: <SettingOutlined />, label: t('nav.settings') },
   ];
 
+  const { user, logout } = useAuth();
+  const [sessionsOpen, setSessionsOpen] = useState(false);
+  const { can } = useAuth();
+  // real alert count for the bell (expiring certificates / contracts / calibration, low tanks …), refreshed every 5 minutes
+  const [alertsCount, setAlertsCount] = useState(0);
+  useEffect(() => {
+    if (!user || !can('dashboard.view')) { setAlertsCount(0); return; }
+    const load = () => api<{ count: number }>('/alerts', { query: { days: 30 } }).then(r => setAlertsCount(r.count ?? 0)).catch(() => undefined);
+    load();
+    const t = setInterval(load, 5 * 60_000);
+    return () => clearInterval(t);
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // usage history: every page opened (+ every print / file export through the global hooks)
+  useEffect(() => { installGlobalTracking(); }, []);
+  useEffect(() => {
+    if (!user) return;
+    const item = [...menuItems].sort((a, b) => b.key.length - a.key.length).find(m => m.key === '/' ? location.pathname === '/' : location.pathname.startsWith(m.key));
+    const title = typeof item?.label === 'string' ? item.label : location.pathname;
+    track('view', { path: location.pathname + location.search, title });
+  }, [location.pathname, location.search, user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  const displayName = (isRTL ? user?.nameAr ?? user?.nameEn : user?.nameEn ?? user?.nameAr) ?? user?.email ?? '';
+  const roleLabel = user?.isAdmin ? (isRTL ? 'مدير النظام' : 'System Admin') : (user?.roles?.[0] ?? '');
+
   const userMenu = {
     items: [
       { key: 'profile', label: isRTL ? 'الملف الشخصي' : 'Profile' },
+      { key: 'sessions', label: isRTL ? 'أجهزتي المسجّلة' : 'My devices' },
       { key: 'logout', label: isRTL ? 'تسجيل الخروج' : 'Logout' },
     ],
+    onClick: ({ key }: { key: string }) => {
+      if (key === 'logout') { logout(); navigate('/login', { replace: true }); }
+      if (key === 'sessions') setSessionsOpen(true);
+    },
   };
 
   return (
@@ -111,6 +165,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       {/* ── SIDEBAR ── */}
       <Sider
         width={220}
+        className="app-sider"
         style={{
           background: 'linear-gradient(180deg, #0b2e18 0%, #1a5c2a 50%, #0b2e18 100%)',
           position: 'fixed',
@@ -119,8 +174,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           right: isRTL ? 0 : 'auto',
           left: isRTL ? 'auto' : 0,
           
-          overflowY: 'auto',
-          overflowX: 'hidden',
+          overflow: 'hidden',
         }}
       >
         {/* ── USER HEADER (matching design image) ── */}
@@ -136,8 +190,9 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           }}>
             {/* Bell + Globe — left side in RTL (start in LTR) */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-              <Badge count={5} size="small" offset={isRTL ? [-2, 2] : [2, 2]}>
-                <BellOutlined style={{ fontSize: 20, color: 'rgba(255,255,255,0.85)', cursor: 'pointer' }} />
+              <Badge count={alertsCount} size="small" overflowCount={99} offset={isRTL ? [-2, 2] : [2, 2]}>
+                <BellOutlined title={isRTL ? `${alertsCount} تنبيه خلال 30 يوماً` : `${alertsCount} alerts in 30 days`} onClick={() => navigate('/')}
+                  style={{ fontSize: 20, color: 'rgba(255,255,255,0.85)', cursor: 'pointer' }} />
               </Badge>
               <GlobalOutlined
                 onClick={toggleLang}
@@ -162,10 +217,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
               <div style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <div style={{ textAlign: isRTL ? 'right' : 'left' }}>
                   <div style={{ color: '#fff', fontWeight: 700, fontSize: 14, lineHeight: 1.3 }}>
-                    {isRTL ? 'أحمد محمد' : 'Ahmed Mohammed'}
+                    {displayName}
                   </div>
                   <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 11 }}>
-                    {isRTL ? 'مدير النظام' : 'System Admin'}
+                    {roleLabel}
                   </div>
                 </div>
                 <RightOutlined style={{ color: 'rgba(255,255,255,0.4)', fontSize: 10 }} />
@@ -187,7 +242,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           </div>
         </div>
 
-        {/* ── NAV MENU ── */}
+        {/* ── NAV MENU (only this part scrolls; header + support box stay put) ── */}
+        <div className="app-sider-menu">
         <Menu
           theme="dark"
           mode="inline"
@@ -196,9 +252,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           items={menuItems}
           style={{ background: 'transparent', border: 'none', marginTop: 2 }}
         />
+        </div>
 
         {/* Support box */}
-        <div style={{ margin: '8px 12px 16px', padding: '10px', background: 'rgba(201,168,76,0.15)', borderRadius: 8, border: '1px solid rgba(201,168,76,0.3)', textAlign: 'center' }}>
+        <div style={{ flexShrink: 0, margin: '8px 12px 16px', padding: '10px', background: 'rgba(201,168,76,0.15)', borderRadius: 8, border: '1px solid rgba(201,168,76,0.3)', textAlign: 'center' }}>
           <CustomerServiceOutlined style={{ color: '#c9a84c', fontSize: 18 }} />
           <div style={{ color: '#c9a84c', fontWeight: 700, fontSize: 14, marginTop: 4 }}>800 2673</div>
           <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10 }}>{t('support.service')}</div>
@@ -266,36 +323,32 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             flexWrap: 'wrap',
             direction: isRTL ? 'rtl' : 'ltr',
           }}>
-            <Button type="primary" icon={<PlusOutlined />}
-              style={{ background: '#1a5c2a', borderColor: '#1a5c2a', fontWeight: 600, flexShrink: 0 }}>
-              {isRTL ? 'إضافة سريع' : 'Quick Add'}
-            </Button>
+            <Dropdown menu={quickAdd} trigger={['click']} placement={isRTL ? 'bottomRight' : 'bottomLeft'}>
+              <Button type="primary" icon={<PlusOutlined />}
+                style={{ background: '#1a5c2a', borderColor: '#1a5c2a', fontWeight: 600, flexShrink: 0 }}>
+                {isRTL ? 'إضافة سريع' : 'Quick Add'}
+              </Button>
+            </Dropdown>
             <DatePicker
-              placeholder={isRTL ? 'هذا الشهر' : 'This Month'}
+              placeholder={isRTL ? 'كل الفترات' : 'All periods'}
               suffixIcon={<CalendarOutlined style={{ color: '#1a5c2a' }} />}
-              style={{ width: 140 }} picker="month"
+              style={{ width: 140 }} picker="month" allowClear
+              value={filters.month} onChange={v => filters.setMonth(v ?? null)}
             />
-            <Select placeholder={isRTL ? 'كل الفرع' : 'All Branches'} style={{ width: 130 }}
-              options={[
-                { value: 'all', label: isRTL ? 'كل الفرع' : 'All Branches' },
-                { value: 'abudhabi', label: isRTL ? 'أبوظبي' : 'Abu Dhabi' },
-                { value: 'dubai', label: isRTL ? 'دبي' : 'Dubai' },
-                { value: 'sharjah', label: isRTL ? 'الشارقة' : 'Sharjah' },
-              ]}
+            <Select placeholder={isRTL ? 'كل الفروع' : 'All Branches'} style={{ width: 150 }} allowClear
+              value={filters.branchId} onChange={v => filters.setBranchId(v ?? undefined)}
+              options={(ref?.branches ?? []).map(b => ({ value: b.id, label: locName(b, isRTL) }))}
             />
-            <Select placeholder={isRTL ? 'كل النوع' : 'All Types'} style={{ width: 120 }}
-              options={[
-                { value: 'all', label: isRTL ? 'كل النوع' : 'All Types' },
-                { value: 'residential', label: isRTL ? 'سكني' : 'Residential' },
-                { value: 'commercial', label: isRTL ? 'تجاري' : 'Commercial' },
-              ]}
+            <Select placeholder={isRTL ? 'كل الأنواع' : 'All Types'} style={{ width: 130 }} allowClear
+              value={filters.buildingType} onChange={v => filters.setBuildingType(v ?? undefined)}
+              options={(ref?.lookups?.BUILDING_TYPE ?? []).map(t => ({ value: t.code, label: t.label }))}
             />
             <div style={{ flex: 1 }} />
-            <Input
-              placeholder={isRTL ? 'بحث (مبنى، شقة، عميل، رقم فاتورة ...)' : 'Search (building, unit, customer, invoice ...)'}
-              prefix={<SearchOutlined style={{ color: '#aaa' }} />}
-              style={{ maxWidth: 340, borderRadius: 8 }}
-              allowClear
+            <Input.Search
+              placeholder={isRTL ? 'بحث عن مبنى (الاسم، الرمز) — Enter' : 'Search buildings (name, code) — Enter'}
+              style={{ maxWidth: 340 }} allowClear
+              value={searchText} onChange={e => { setSearchText(e.target.value); if (!e.target.value) filters.submitSearch(''); }}
+              onSearch={runSearch}
             />
           </div>
         </div>
@@ -303,6 +356,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         {/* Page content */}
         <Content style={{ background: '#f5f6fa', minHeight: 'calc(100vh - 160px)' }}>
           {children}
+          <SessionsModal open={sessionsOpen} onClose={() => setSessionsOpen(false)} />
         </Content>
 
         {/* Footer */}
@@ -313,5 +367,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     </Layout>
   );
 };
+
+/** The header filters live in a context so pages (e.g. Buildings) can apply them. */
+const AppLayout: React.FC<AppLayoutProps> = props => (
+  <GlobalFiltersProvider><AppLayoutInner {...props} /></GlobalFiltersProvider>
+);
 
 export default AppLayout;
