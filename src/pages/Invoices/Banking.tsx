@@ -34,7 +34,7 @@ const SOURCE: Record<string, string> = {
 };
 
 interface BankAccountRow {
-  id: number; branchId?: number; branch?: string; nameAr: string; nameEn?: string; name: string; accountType: string; bankName?: string; accountNo?: string; iban?: string;
+  id: number; branchId?: number; branch?: string; nameAr: string; nameEn?: string; name: string; accountType: string; bankName?: string; accountNo?: string; iban?: string; swiftCode?: string; showOnInvoice?: boolean;
   currencyId?: number; currency: string; glAccountId: number; glAccount: string; openingBalance: number; openingDate?: string; openingJournalId?: number;
   isActive: boolean; notes?: string; balance: number; lastMovement?: string; receiptMethods: string[]; paymentMethods: string[]; unmatchedLines: number; reconciledUntil?: string;
 }
@@ -90,6 +90,8 @@ function AccountModal({ open, row, onClose, onSaved }: { open: boolean; row: Ban
               <Col span={8}><Form.Item name="bankName" label="البنك" rules={[{ required: true, message: 'مطلوب' }]}><Input /></Form.Item></Col>
               <Col span={8}><Form.Item name="accountNo" label="رقم الحساب"><Input dir="ltr" /></Form.Item></Col>
               <Col span={8}><Form.Item name="iban" label="IBAN"><Input dir="ltr" placeholder="AE07 0331 2345 6789 0123 456" /></Form.Item></Col>
+              <Col span={8}><Form.Item name="swiftCode" label="Swift Code"><Input dir="ltr" placeholder="MEBLAEAD" /></Form.Item></Col>
+              <Col span={16}><Form.Item name="showOnInvoice" label="يظهر على فاتورة العميل (الدفع بالتحويل البنكي)" valuePropName="checked"><Switch /></Form.Item></Col>
             </>
           )}
           <Col span={12}><Form.Item name="glAccountId" label="حساب دليل الحسابات المرتبط" rules={[{ required: true, message: 'اختر الحساب' }]}

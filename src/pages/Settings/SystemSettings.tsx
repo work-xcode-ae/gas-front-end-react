@@ -65,13 +65,26 @@ function CompanySection({ canManage }: { canManage: boolean }) {
               <Col span={8}><Form.Item name="website" label="الموقع الإلكتروني"><Input dir="ltr" /></Form.Item></Col>
               <Col span={24}><Form.Item name="address" label="العنوان"><Input.TextArea rows={2} /></Form.Item></Col>
             </Row>
+            <Text strong style={{ display: 'block', margin: '4px 0 10px', color: '#1a5c2a' }}>بيانات الفاتورة والعقود المطبوعة</Text>
+            <Row gutter={12}>
+              <Col span={8}><Form.Item name="poBox" label="صندوق البريد"><Input dir="ltr" /></Form.Item></Col>
+              <Col span={8}><Form.Item name="fax" label="الفاكس"><Input dir="ltr" /></Form.Item></Col>
+              <Col span={8}><Form.Item name="customerCarePhone" label="خدمة العملاء (Contact us)"><Input dir="ltr" /></Form.Item></Col>
+              <Col span={12}><Form.Item name="cashContactName" label="مسؤول التحصيل النقدي — الاسم" extra="يظهر في الفاتورة: For paying your invoice by Cash please contact"><Input dir="ltr" /></Form.Item></Col>
+              <Col span={12}><Form.Item name="cashContactMobile" label="مسؤول التحصيل النقدي — الجوال"><Input dir="ltr" /></Form.Item></Col>
+              <Col span={24}><Form.Item name="invoicePaymentNote" label="طرق الدفع (Mode of Payment)"><Input.TextArea rows={2} dir="ltr" /></Form.Item></Col>
+              <Col span={12}><Form.Item name="signatoryNameEn" label="المفوض بالتوقيع (إنجليزي)"><Input dir="ltr" /></Form.Item></Col>
+              <Col span={12}><Form.Item name="signatoryNameAr" label="المفوض بالتوقيع (عربي)"><Input /></Form.Item></Col>
+              <Col span={12}><Form.Item name="signatoryTitleEn" label="صفته (إنجليزي)"><Input dir="ltr" placeholder="General Manager" /></Form.Item></Col>
+              <Col span={12}><Form.Item name="signatoryTitleAr" label="صفته (عربي)"><Input placeholder="مدير عام المؤسسة" /></Form.Item></Col>
+            </Row>
           </Form>
         </Card>
       </Col>
       <Col xs={24} lg={9}>
         <Card size="small" bordered={false} style={{ borderRadius: 10 }} title={<Text strong>الهوية والختم</Text>}>
           <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 10 }}>تظهر على صفحة الدخول والفواتير المطبوعة.</Text>
-          {([['logo', 'الشعار', company?.logoPath], ['logo_dark', 'الشعار (خلفية داكنة)', company?.logoDarkPath], ['stamp', 'الختم', company?.stampPath]] as const).map(([kind, label, path]) => (
+          {([['logo', 'الشعار', company?.logoPath], ['logo_dark', 'الشعار (خلفية داكنة)', company?.logoDarkPath], ['stamp', 'الختم', company?.stampPath], ['letterhead', 'ورق الفاتورة الرسمي (صورة A4 كاملة)', company?.letterheadPath]] as const).map(([kind, label, path]) => (
             <div key={kind} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
               <div style={{ width: 90, height: 60, borderRadius: 8, background: kind === 'logo_dark' ? '#0b2e18' : '#fafafa', border: '1px solid #f0f0f0',
                 display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>

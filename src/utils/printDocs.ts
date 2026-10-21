@@ -1,6 +1,6 @@
 import dayjs from 'dayjs';
 import { api, API_BASE, authFetch } from '../api/client';
-import { termCategory } from '../api/terms';
+import { amcContractHtml, invoiceHtml, supplyContractHtml, type AmcPrintData, type InvoicePrintData, type PrintAssets, type SupplyContractPrintData } from './printLayouts';
 
 /**
  * Printable customer documents (tax invoice, payment receipt).
@@ -10,16 +10,6 @@ import { termCategory } from '../api/terms';
  */
 
 interface Company { nameEn?: string; nameAr?: string; trn?: string; address?: string; phone?: string; email?: string; logoPath?: string }
-interface InvoiceDetail {
-  invoice: {
-    id: number; invoiceNo: string; customer?: string; building?: string; buildingCode?: string; contractNo?: string; unit?: string;
-    date: string; dueDate: string; period?: string; typeLabel?: string; subtotal: number; vat: number; amount: number; paid: number; balance: number;
-    status?: string; statusLabel?: string; notes?: string;
-  };
-  items: { id: number; typeLabel?: string; description?: string; quantity?: number; uom?: string; unitPrice?: number; vatRate?: number; amount?: number; vat?: number }[];
-  payments: { id: number; receiptNo: string; date: string; amount: number; method?: string; reference?: string }[];
-  company?: Company | null;
-}
 interface PaymentDetail {
   payment: {
     id: number; receiptNo: string; date: string; amount: number; methodLabel?: string; reference?: string; receivedBy?: string; notes?: string;
@@ -152,57 +142,26 @@ function failed(w: Window, msg: string) {
   w.document.close();
 }
 
-const statusClass = (s?: string) => (s === 'paid' ? 's-paid' : s === 'overdue' ? 's-overdue' : 's-other');
 
-/** Tax invoice for the customer. */
-export async function printInvoice(w: Window | null, invoiceId: number, ctx: PrintContext = {}) {
+/** Assets of the printed forms: the company's uploaded letterhead / logo, or the built-in ones shipped with the portal. */
+async function printAssets(company?: { letterheadPath?: string | null; logoPath?: string | null } | null): Promise<PrintAssets> {
+  const base = `${window.location.origin}${(import.meta as any).env?.BASE_URL ?? '/'}print/`;
+  const [letterhead, logo] = await Promise.all([fileAsDataUrl(company?.letterheadPath), fileAsDataUrl(company?.logoPath)]);
+  return { letterhead: letterhead ?? `${base}letterhead.jpg`, logo: logo ?? `${base}logo.png`, logoAmc: logo ?? `${base}logo-amc.jpg` };
+}
+
+function writeDoc(w: Window, html: string) {
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
+/** Gas / tax invoice on the company letterhead (same layout as the printed company invoice). */
+export async function printInvoice(w: Window | null, invoiceId: number, _ctx: PrintContext = {}) {
   if (!w) return;
   try {
-    const data = await api<InvoiceDetail>(`/invoices/${invoiceId}`);
-    const inv = data.invoice;
-    const company = data.company ?? (await loadCompany());
-    const logo = await fileAsDataUrl(company?.logoPath);
-    const items = data.items.map((it, i) => `
-      <tr><td>${i + 1}</td><td>${esc(it.description || it.typeLabel || '')}</td>
-      <td class="num">${n2(it.quantity)} ${esc(it.uom ?? '')}</td><td class="num">${n2(it.unitPrice)}</td>
-      <td class="num">${it.vatRate ?? 0}%</td><td class="num">${n2(it.vat)}</td><td class="num"><b>${n2((it.amount ?? 0) + (it.vat ?? 0))}</b></td></tr>`).join('');
-    const pays = data.payments.length ? `
-      <h4 style="margin:18px 0 6px;color:#1a5c2a">الدفعات المستلمة على هذه الفاتورة</h4>
-      <table><thead><tr><th>رقم الإيصال</th><th>التاريخ</th><th>المرجع</th><th>المبلغ (د.إ)</th></tr></thead><tbody>
-      ${data.payments.map(p => `<tr><td>${esc(p.receiptNo)}</td><td>${d(p.date)}</td><td>${esc(p.reference ?? '—')}</td><td class="num">${n2(p.amount)}</td></tr>`).join('')}
-      </tbody></table>` : '';
-    render(w, `فاتورة ${inv.invoiceNo}`, `
-      ${header(company, logo, 'فاتورة ضريبية', 'TAX INVOICE', inv.invoiceNo)}
-      <div class="grid">
-        <div class="box"><h4>بيانات العميل</h4>
-          <div class="row"><span class="k">العميل</span><span class="v">${esc(inv.customer)}</span></div>
-          ${ctx.tenantPhone ? `<div class="row"><span class="k">الهاتف</span><span class="v"><bdi dir="ltr">${esc(ctx.tenantPhone)}</bdi></span></div>` : ''}
-          <div class="row"><span class="k">المبنى</span><span class="v">${esc(inv.building ?? ctx.buildingName)}${inv.buildingCode ? ` (${esc(inv.buildingCode)})` : ''}</span></div>
-          <div class="row"><span class="k">الوحدة</span><span class="v">${esc(inv.unit ?? ctx.unitNo)}</span></div>
-          <div class="row"><span class="k">رقم العقد</span><span class="v">${esc(inv.contractNo ?? '—')}</span></div>
-        </div>
-        <div class="box"><h4>بيانات الفاتورة</h4>
-          <div class="row"><span class="k">تاريخ الإصدار</span><span class="v">${d(inv.date)}</span></div>
-          <div class="row"><span class="k">تاريخ الاستحقاق</span><span class="v">${d(inv.dueDate)}</span></div>
-          ${inv.period ? `<div class="row"><span class="k">فترة الفوترة</span><span class="v">${esc(inv.period)}</span></div>` : ''}
-          <div class="row"><span class="k">النوع</span><span class="v">${esc(inv.typeLabel ?? '—')}</span></div>
-          <div class="row"><span class="k">الحالة</span><span class="v"><span class="status ${statusClass(inv.status)}">${esc(inv.statusLabel ?? inv.status)}</span></span></div>
-        </div>
-      </div>
-      <table><thead><tr><th>#</th><th>الوصف</th><th>الكمية</th><th>سعر الوحدة</th><th>الضريبة %</th><th>مبلغ الضريبة</th><th>الإجمالي (د.إ)</th></tr></thead>
-        <tbody>${items || '<tr><td colspan="7" style="text-align:center;color:#999">لا توجد بنود</td></tr>'}</tbody></table>
-      <div class="totals"><div class="box">
-        <div class="row"><span class="k">المجموع قبل الضريبة</span><span class="v num">${n2(inv.subtotal)}</span></div>
-        <div class="row"><span class="k">ضريبة القيمة المضافة</span><span class="v num">${n2(inv.vat)}</span></div>
-        <div class="row grand"><span class="k">الإجمالي (د.إ)</span><span class="v num">${n2(inv.amount)}</span></div>
-        <div class="row"><span class="k">المدفوع</span><span class="v num">${n2(inv.paid)}</span></div>
-        <div class="row due"><span class="k">الرصيد المستحق</span><span class="v num">${n2(inv.balance)}</span></div>
-        ${inv.status === 'paid' ? '<div style="text-align:center;margin-top:10px"><span class="paid-stamp">مدفوعة PAID</span></div>' : ''}
-      </div></div>
-      ${pays}
-      ${inv.notes ? `<div class="notes"><b>ملاحظات:</b> ${esc(inv.notes)}</div>` : ''}
-      <div class="sign"><div>توقيع المحاسب</div><div>ختم الشركة</div></div>
-      <div class="foot">هذه فاتورة صادرة إلكترونياً · ${esc(company?.nameAr || company?.nameEn || '')} · طُبعت بتاريخ ${dayjs().format('YYYY-MM-DD')}</div>`);
+    const data = await api<InvoicePrintData>(`/print/invoice/${invoiceId}`);
+    writeDoc(w, invoiceHtml(data, await printAssets(data.company)));
   } catch (e: any) {
     failed(w, e?.message ?? String(e));
   }
@@ -252,146 +211,23 @@ export async function printReceipt(w: Window | null, paymentId: number, ctx: Pri
 
 // ═════════════════════════ contracts ═════════════════════════
 
-const row = (k: string, v: unknown) => `<div class="row"><span class="k">${esc(k)}</span><span class="v">${v == null || v === '' ? '—' : v}</span></div>`;
-
-/** Terms grouped by category (supply) or a flat numbered list (AMC). */
-function termsBlock(groups: { title?: string; items: string[] }[]) {
-  const all = groups.filter(g => g.items.length);
-  if (!all.length) return '';
-  let n = 0;
-  return `<div class="clause">الشروط والأحكام</div>` + all.map(g => `
-    ${g.title ? `<div class="term-cat">${esc(g.title)}</div>` : ''}
-    <ol class="terms" start="${n + 1}">${g.items.map(t => { n++; return `<li>${esc(t)}</li>`; }).join('')}</ol>`).join('');
-}
-
-const FREQ: Record<string, string> = { monthly: 'شهرية', bimonthly: 'كل شهرين', quarterly: 'ربع سنوية', semi_annual: 'نصف سنوية', annual: 'سنوية', yearly: 'سنوية' };
-const CYCLE: Record<string, string> = { per_m3: 'لكل م³', monthly: 'شهرياً', yearly: 'سنوياً', one_time: 'مرة واحدة' };
-
-/** Gas supply contract between the company and the tenant (issue #9). */
+/** Gas supply contract between the company and the tenant (form, terms & conditions, signatures). */
 export async function printSupplyContract(w: Window | null, contractId: number) {
   if (!w) return;
   try {
-    const data = await api<any>(`/supply-contracts/${contractId}`);
-    const c = data.contract;
-    const [t, company] = await Promise.all([api<any>(`/tenants/${c.tenantId}`).catch(() => null), loadCompany()]);
-    const logo = await fileAsDataUrl(company?.logoPath);
-    const cname = company?.nameAr || company?.nameEn || 'الشركة';
-    const fees = (data.fees ?? []).filter((f: any) => f.isActive);
-    const groups = new Map<string, string[]>();
-    (data.terms ?? []).forEach((x: any) => { const k = termCategory(x.category).label; groups.set(k, [...(groups.get(k) ?? []), x.text]); });
-    render(w, `عقد توريد غاز ${c.contractNo}`, `
-      ${header(company, logo, 'عقد توريد غاز', 'GAS SUPPLY CONTRACT', c.contractNo)}
-      <p style="margin:14px 0 4px;line-height:1.8">أُبرم هذا العقد بتاريخ <b>${d(c.startDate)}</b> بين الطرفين التاليين، لتوريد الغاز إلى الوحدة المبينة أدناه وفق الشروط والأحكام الواردة في هذا العقد:</p>
-      <div class="parties">
-        <div class="box"><h4>الطرف الأول — مزوّد الخدمة</h4>
-          ${row('الاسم', esc(cname))}
-          ${company?.trn ? row('الرقم الضريبي', esc(company.trn)) : ''}
-          ${row('الهاتف', company?.phone ? `<bdi dir="ltr">${esc(company.phone)}</bdi>` : '—')}
-          ${row('العنوان', esc(company?.address ?? '—'))}
-        </div>
-        <div class="box"><h4>الطرف الثاني — المستأجر</h4>
-          ${row('الاسم', esc(t?.name ?? c.tenant))}
-          ${row('رقم العميل', esc(t?.code ?? '—'))}
-          ${row('الهوية الإماراتية', t?.emiratesId ? `<bdi dir="ltr">${esc(t.emiratesId)}</bdi>` : '—')}
-          ${row('الجنسية', esc(t?.nationality ?? '—'))}
-          ${row('الهاتف', t?.phone ? `<bdi dir="ltr">${esc(t.phone)}</bdi>` : '—')}
-          ${row('البريد', esc(t?.email ?? '—'))}
-        </div>
-      </div>
-      <div class="grid">
-        <div class="box"><h4>موقع التوريد</h4>
-          ${row('المبنى', `${esc(c.building)}${c.buildingCode ? ` (${esc(c.buildingCode)})` : ''}`)}
-          ${row('الوحدة', esc(c.unit))}
-          ${c.floor != null ? row('الطابق', esc(c.floor)) : ''}
-          ${row('رقم العداد', esc(c.meter ?? '—'))}
-          ${row('القراءة الافتتاحية', c.openingReading != null ? `${esc(c.openingReading)} م³ <span style="color:#999">(${d(c.openingReadDate)})</span>` : '—')}
-        </div>
-        <div class="box"><h4>مدة العقد والتأمين</h4>
-          ${row('من', d(c.startDate))}
-          ${row('إلى', d(c.endDate))}
-          ${row('التجديد التلقائي', c.autoRenew ? `نعم — كل ${esc(c.renewalPeriod ?? 12)} شهر` : 'لا')}
-          ${row('مبلغ التأمين', c.depositAmount ? `<span class="num">${n2(c.depositAmount)}</span> د.إ` : '—')}
-          ${row('حالة العقد', esc(c.statusLabel ?? c.status))}
-        </div>
-      </div>
-      <div class="clause">الأسعار والرسوم</div>
-      <table><thead><tr><th>البند</th><th>الدورة</th><th>المبلغ (د.إ)</th><th>ساري من</th></tr></thead><tbody>
-        ${fees.length ? fees.map((f: any) => `<tr><td>${esc(f.typeLabel)}</td><td>${esc(CYCLE[f.cycle] ?? f.cycleLabel ?? f.cycle)}</td><td class="num"><b>${n2(f.amount)}</b></td><td>${d(f.effectiveFrom)}</td></tr>`).join('')
-          : '<tr><td colspan="4" style="text-align:center;color:#999">لا توجد رسوم</td></tr>'}
-      </tbody></table>
-      <div style="font-size:11px;color:#777;margin-top:4px">الأسعار لا تشمل ضريبة القيمة المضافة (5%) ما لم يُذكر خلاف ذلك. تُصدر فواتير الاستهلاك حسب قراءات العداد.</div>
-      ${termsBlock([...groups.entries()].map(([title, items]) => ({ title, items })))}
-      ${c.terms ? `<div class="notes"><b>ملاحظات:</b> ${esc(c.terms)}</div>` : ''}
-      <div class="sign3 avoid">
-        <div class="s"><div class="who">الطرف الأول — ${esc(cname)}</div><div class="line">التوقيع والختم · التاريخ ____/____/______</div></div>
-        <div class="s"><div class="who">الطرف الثاني — ${esc(t?.name ?? c.tenant)}</div><div class="line">التوقيع · التاريخ ____/____/______</div></div>
-      </div>
-      <div class="foot">${esc(cname)} · عقد رقم ${esc(c.contractNo)} · طُبع بتاريخ ${dayjs().format('YYYY-MM-DD')}</div>`);
+    const data = await api<SupplyContractPrintData>(`/print/supply-contract/${contractId}`);
+    writeDoc(w, supplyContractHtml(data, await printAssets(data.company)));
   } catch (e: any) {
     failed(w, e?.message ?? String(e));
   }
 }
 
-/** Annual maintenance contract between the provider and the building owner (issue #8). */
+/** Gas supply & annual maintenance contract with the building owner (bilingual articles). */
 export async function printAmcContract(w: Window | null, contractId: number) {
   if (!w) return;
   try {
-    const [a, company] = await Promise.all([api<any>(`/amc-contracts/${contractId}`), loadCompany()]);
-    const logo = await fileAsDataUrl(company?.logoPath);
-    const cname = company?.nameAr || company?.nameEn || 'الشركة';
-    const scope: string[] = a.scope ?? [];
-    const excluded: string[] = a.excludedScope ?? [];
-    const sched: any[] = a.paymentSchedule ?? [];
-    const visits: any[] = a.visits ?? [];
-    render(w, `عقد صيانة ${a.contractNo}`, `
-      ${header(company, logo, 'عقد صيانة سنوية', 'ANNUAL MAINTENANCE CONTRACT', a.contractNo)}
-      <p style="margin:14px 0 4px;line-height:1.8">أُبرم هذا العقد بين الطرفين التاليين لتقديم خدمات الصيانة الدورية لشبكة الغاز في المبنى المبين أدناه، للفترة من <b>${d(a.startDate)}</b> إلى <b>${d(a.endDate)}</b>:</p>
-      <div class="parties">
-        <div class="box"><h4>الطرف الأول — المالك / العميل</h4>
-          ${row('الاسم', esc(a.ownerName ?? '—'))}
-          ${row('الهاتف', a.ownerPhone ? `<bdi dir="ltr">${esc(a.ownerPhone)}</bdi>` : '—')}
-          ${row('البريد', esc(a.ownerEmail ?? '—'))}
-          ${row('المبنى', `${esc(a.building)}${a.buildingCode ? ` (${esc(a.buildingCode)})` : ''}`)}
-        </div>
-        <div class="box"><h4>الطرف الثاني — مزوّد خدمة الصيانة</h4>
-          ${row('الاسم', esc(a.vendor ?? cname))}
-          ${row('جهة الاتصال', a.vendorContact ? `<bdi dir="ltr">${esc(a.vendorContact)}</bdi>` : '—')}
-          ${row('البريد', esc(a.vendorEmail ?? '—'))}
-          ${company?.trn ? row('الرقم الضريبي', esc(company.trn)) : ''}
-        </div>
-      </div>
-      <div class="grid">
-        <div class="box"><h4>مستوى الخدمة</h4>
-          ${row('تكرار الزيارات', esc(FREQ[a.visitFrequency] ?? a.visitFrequency ?? '—'))}
-          ${row('عدد الزيارات', esc(a.visitsTotal ?? visits.length))}
-          ${row('وقت الاستجابة للطوارئ', a.responseTimeHours ? `${esc(a.responseTimeHours)} ساعة` : '—')}
-          ${row('تغطية الطوارئ', a.emergencyIncluded ? 'مشمولة' : 'غير مشمولة')}
-        </div>
-        <div class="box"><h4>القيمة</h4>
-          ${row('القيمة السنوية', `<span class="num">${n2(a.annualValue)}</span> د.إ`)}
-          ${row('عدد الدفعات', esc(sched.length || 1))}
-          ${row('ضريبة القيمة المضافة', '5% تُضاف على كل فاتورة')}
-          ${row('حالة العقد', esc(a.statusLabel ?? a.status))}
-        </div>
-      </div>
-      <div class="clause">نطاق الخدمات المشمولة</div>
-      <div class="chips">${scope.length ? scope.map(x => `<span>${esc(x)}</span>`).join('') : '<span style="color:#999">—</span>'}</div>
-      ${excluded.length ? `<div class="clause">خارج نطاق العقد</div><div class="chips">${excluded.map(x => `<span>${esc(x)}</span>`).join('')}</div>` : ''}
-      ${sched.length ? `<div class="clause">جدول الدفعات</div>
-      <table class="avoid"><thead><tr><th>#</th><th>الدفعة</th><th>تاريخ الاستحقاق</th><th>المبلغ قبل الضريبة (د.إ)</th></tr></thead><tbody>
-        ${sched.map((s, i) => `<tr><td>${i + 1}</td><td>${esc(s.label ?? `دفعة ${i + 1}`)}</td><td>${d(s.dueDate)}</td><td class="num"><b>${n2(s.amount)}</b></td></tr>`).join('')}
-      </tbody></table>` : ''}
-      ${visits.length ? `<div class="clause">جدول الزيارات</div>
-      <table class="avoid"><thead><tr><th>#</th><th>الفترة</th><th>الموعد المجدول</th></tr></thead><tbody>
-        ${visits.map((v, i) => `<tr><td>${i + 1}</td><td>${esc(v.periodLabel ?? v.visitNo)}</td><td>${d(v.scheduledDate)}</td></tr>`).join('')}
-      </tbody></table>` : ''}
-      ${termsBlock([{ items: [...(a.terms ?? []), ...(a.customTerms ?? [])] }])}
-      ${a.notes ? `<div class="notes"><b>ملاحظات:</b> ${esc(a.notes)}</div>` : ''}
-      <div class="sign3 avoid">
-        <div class="s"><div class="who">الطرف الأول — ${esc(a.ownerName ?? 'المالك')}</div><div class="line">التوقيع · التاريخ ____/____/______</div></div>
-        <div class="s"><div class="who">الطرف الثاني — ${esc(a.vendor ?? cname)}</div><div class="line">التوقيع والختم · التاريخ ____/____/______</div></div>
-      </div>
-      <div class="foot">${esc(cname)} · عقد رقم ${esc(a.contractNo)} · طُبع بتاريخ ${dayjs().format('YYYY-MM-DD')}</div>`);
+    const data = await api<AmcPrintData>(`/print/amc-contract/${contractId}`);
+    writeDoc(w, amcContractHtml(data, await printAssets(data.company)));
   } catch (e: any) {
     failed(w, e?.message ?? String(e));
   }
