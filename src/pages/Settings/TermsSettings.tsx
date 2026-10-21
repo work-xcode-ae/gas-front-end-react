@@ -5,6 +5,7 @@ import {
 } from '@ant-design/icons';
 import { errorMessage } from '../../api/client';
 import { TERM_CATEGORIES, TERM_CONTRACT_TYPES, termCategory, termsApi, type TermContractType, type TermTemplate } from '../../api/terms';
+import { TermText, TermTextArea } from '../../components/TermFields';
 
 const PRIMARY = '#1a5c2a';
 const DARK = '#0b2e18';
@@ -157,8 +158,8 @@ const TermsSettings: React.FC = () => {
                 <div key={t.id} className={`ts-row${t.isActive ? '' : ' off'}`}>
                   <span className="ts-num">{i + 1}</span>
                   <div style={{ flex: 1 }}>
-                    <div className="ts-text">{t.textAr}</div>
-                    {t.textEn && <div className="ts-en">{t.textEn}</div>}
+                    <div className="ts-text"><TermText text={t.textAr} /></div>
+                    {t.textEn && <div className="ts-en"><TermText text={t.textEn} lang="en" /></div>}
                   </div>
                   <div className="ts-meta">
                     <Tooltip title={t.isDefault ? 'محدد افتراضياً في العقود الجديدة — اضغط لإلغاء' : 'اجعله محدداً افتراضياً في العقود الجديدة'}>
@@ -193,11 +194,18 @@ const TermsSettings: React.FC = () => {
           <Form.Item name="category" label="الفئة" rules={[{ required: true, message: 'اختر الفئة' }]}>
             <Select options={Object.entries(TERM_CATEGORIES).map(([k, m]) => ({ value: k, label: <span><span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 4, background: m.color, marginInlineEnd: 6 }} />{m.label}</span> }))} />
           </Form.Item>
-          <Form.Item name="textAr" label="نص البند (عربي)" rules={[{ required: true, whitespace: true, message: 'أدخل نص البند' }]}>
-            <Input.TextArea autoSize={{ minRows: 3, maxRows: 8 }} maxLength={1000} showCount />
-          </Form.Item>
-          <Form.Item name="textEn" label="نص البند (إنجليزي)" extra="اختياري — يُستخدم عند عرض النظام بالإنجليزية">
-            <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} maxLength={1000} style={{ direction: 'ltr' }} />
+          <Form.Item noStyle shouldUpdate={(a, b) => a.contractType !== b.contractType}>
+            {({ getFieldValue }) => (
+              <>
+                <Form.Item name="textAr" label="نص البند (عربي)" rules={[{ required: true, whitespace: true, message: 'أدخل نص البند' }]}
+                  extra="الأزرار تُدرج حقلاً مثل {gas_price} يُستبدل بقيمة العقد عند الطباعة">
+                  <TermTextArea contractType={getFieldValue('contractType') ?? 'supply'} minRows={3} maxRows={8} showCount />
+                </Form.Item>
+                <Form.Item name="textEn" label="نص البند (إنجليزي)" extra="يُطبع بجانب النص العربي في العقد — استخدم نفس الحقول">
+                  <TermTextArea contractType={getFieldValue('contractType') ?? 'supply'} dir="ltr" lang="en" minRows={2} maxRows={6} />
+                </Form.Item>
+              </>
+            )}
           </Form.Item>
           <Row gutter={12}>
             <Col span={12}><Form.Item name="isDefault" label="محدد افتراضياً في العقود الجديدة" valuePropName="checked"><Switch /></Form.Item></Col>

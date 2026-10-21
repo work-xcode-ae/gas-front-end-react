@@ -38,7 +38,7 @@ function CompanySection({ canManage }: { canManage: boolean }) {
       message.success('تم حفظ بيانات الشركة'); load();
     } catch (e) { message.error(errorMessage(e), 6); } finally { setSaving(false); }
   };
-  const upload = async (kind: 'logo' | 'logo_dark' | 'stamp', file: File) => {
+  const upload = async (kind: 'logo' | 'logo_dark' | 'stamp' | 'letterhead', file: File) => {
     if (!company) { message.warning('احفظ بيانات الشركة أولاً'); return; }
     const fd = new FormData(); fd.append('file', file);
     try { await apiUpload(`/companies/${company.id}/branding/${kind}`, fd); message.success('تم رفع الصورة'); load(); }

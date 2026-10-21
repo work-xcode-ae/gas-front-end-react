@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Drawer, Tabs, Descriptions, Tag, Table, Button, Space, Typography, Spin, Empty, Row, Col, Modal, Form, InputNumber, DatePicker, Input, Checkbox, message, Alert, Select, Popconfirm } from 'antd';
+import { Drawer, Tabs, Descriptions, Tag, Table, Button, Space, Typography, Spin, Empty, Row, Col, Modal, Form, InputNumber, DatePicker, Input, Checkbox, message, Alert, Select, Popconfirm, Radio } from 'antd';
+import { useTranslation } from 'react-i18next';
+import { useReference } from '../../api/reference';
+import { serviceTypeOptions, usageTypeOptions } from '../../api/terms';
 import { SyncOutlined, StopOutlined, FileAddOutlined, PlayCircleOutlined, HomeOutlined, UserOutlined, PlusOutlined, DeleteOutlined, PrinterOutlined } from '@ant-design/icons';
 import { openPrintWindow, printSupplyContract } from '../../utils/printDocs';
 import dayjs from 'dayjs';
@@ -9,10 +12,12 @@ import { useAuth } from '../../auth/AuthContext';
 import { Kpi, money, d10, PRIMARY, INV_STATUS, CONTRACT_STATUS, PAY_STATUS } from '../Customers/shared';
 
 const { Text } = Typography;
-type ActionKind = 'renew' | 'terminate' | 'invoice' | 'activate' | 'fee' | 'deposit';
+type ActionKind = 'renew' | 'terminate' | 'invoice' | 'activate' | 'fee' | 'deposit' | 'details';
 const FEE_TYPES = [
   { value: 'gas_price', label: 'سعر الغاز (لكل م³)', cycle: 'per_m3' },
+  { value: 'service', label: 'رسوم الخدمة الشهرية', cycle: 'monthly' },
   { value: 'maintenance', label: 'رسوم صيانة', cycle: 'monthly' },
+  { value: 'admin', label: 'رسوم إدارية', cycle: 'one_time' },
   { value: 'meter_rent', label: 'إيجار العداد', cycle: 'monthly' },
   { value: 'connection', label: 'رسوم التوصيل', cycle: 'one_time' },
   { value: 'disconnection', label: 'رسوم القطع', cycle: 'one_time' },
@@ -36,6 +41,8 @@ export default function ContractDrawer({ contractId, onClose, onChanged, onOpenU
   const [form] = Form.useForm();
   const [key, setKey] = useState(0);
   const [dep, setDep] = useState<any>(null);
+  const { i18n } = useTranslation();
+  const { data: ref } = useReference(i18n.language);
 
   const load = useCallback(() => {
     if (!contractId) return;
@@ -58,6 +65,11 @@ export default function ContractDrawer({ contractId, onClose, onChanged, onOpenU
       form.setFieldsValue({ period: [start && start.isAfter(from) ? start : from, dayjs()], issue: true });
     }
     if (a === 'activate') form.setFieldsValue({ openingDate: dayjs() });
+    if (a === 'details') {
+      const x = d?.details ?? {};
+      form.setFieldsValue({ serviceType: x.serviceType ?? undefined, usageType: x.usageType ?? undefined, billingCycleMonths: x.billingCycleMonths ?? undefined,
+        billDelivery: [x.billByEmail ? 'email' : null, x.billByPost ? 'post' : null].filter(Boolean) });
+    }
     if (a === 'deposit') form.setFieldsValue({ date: dayjs(), applyToInvoices: true, refund: true, refundMethod: 'cash' });
     if (a === 'fee') form.setFieldsValue({ type: d?.fees?.some((f: any) => f.type === 'gas_price' && f.isActive) ? 'maintenance' : 'gas_price', cycle: undefined, effectiveFrom: dayjs() });
     setAction(a);
@@ -80,6 +92,11 @@ export default function ContractDrawer({ contractId, onClose, onChanged, onOpenU
       if (action === 'deposit') {
         const r = await api<any>(`${base}/settle-deposit`, { method: 'POST', body: { date: v.date?.format('YYYY-MM-DD') ?? null, applyToInvoices: !!v.applyToInvoices, refund: !!v.refund, refundMethod: v.refundMethod, reference: v.reference || null } });
         message.success(`تمت تسوية التأمين — خُصم من الفواتير ${money(r.applied)}${r.refunded ? ` وأُعيد للعميل ${money(r.refunded)}` : ''}`, 6);
+      }
+      if (action === 'details') {
+        await api(`${base}/details`, { method: 'PUT', body: { serviceType: v.serviceType ?? null, usageType: v.usageType ?? null,
+          billByEmail: (v.billDelivery ?? []).includes('email'), billByPost: (v.billDelivery ?? []).includes('post'), billingCycleMonths: v.billingCycleMonths ?? null } });
+        message.success('تم حفظ تفاصيل العقد');
       }
       if (action === 'fee') {
         const cycle = v.cycle ?? FEE_TYPES.find(t => t.value === v.type)?.cycle;
@@ -142,6 +159,11 @@ export default function ContractDrawer({ contractId, onClose, onChanged, onOpenU
                 <Descriptions.Item label="القراءة الافتتاحية">{c.openingReading != null ? `${c.openingReading} (${d10(c.openingReadDate)})` : '—'}</Descriptions.Item>
                 <Descriptions.Item label="آخر قراءة">{c.lastReading != null ? `${c.lastReading} (${d10(c.lastReadDate)})` : '—'}</Descriptions.Item>
                 {c.terminatedAt && <Descriptions.Item label="تاريخ الإنهاء">{d10(c.terminatedAt)}</Descriptions.Item>}
+                <Descriptions.Item label="نوع الخدمة">{d.details?.serviceTypeLabel ?? '—'}</Descriptions.Item>
+                <Descriptions.Item label="نوع العقد">{d.details?.usageTypeLabel ?? '—'}</Descriptions.Item>
+                <Descriptions.Item label="استلام الفاتورة">{[d.details?.billByEmail && 'البريد الإلكتروني', d.details?.billByPost && 'صندوق البريد'].filter(Boolean).join(' + ') || '—'}</Descriptions.Item>
+                <Descriptions.Item label="فاتورة كل">{d.details?.billingCycleMonths ? `${d.details.billingCycleMonths} شهر` : '—'}
+                  {canManage && <Button size="small" type="link" onClick={() => openAction('details')}>تعديل التفاصيل</Button>}</Descriptions.Item>
               </Descriptions>
             ) },
             { key: 'fees', label: `الرسوم (${d.fees?.length ?? 0})`, children: (
@@ -217,8 +239,8 @@ export default function ContractDrawer({ contractId, onClose, onChanged, onOpenU
       )}
 
       <Modal open={!!action} onCancel={() => setAction(null)} onOk={submit} confirmLoading={busy} cancelText="إلغاء" destroyOnClose
-        okText={action === 'terminate' ? 'إنهاء العقد' : action === 'invoice' ? 'إصدار' : action === 'activate' ? 'تفعيل' : action === 'fee' ? 'إضافة' : action === 'deposit' ? 'تسوية' : 'تجديد'} okButtonProps={{ danger: action === 'terminate' }}
-        title={action === 'renew' ? 'تجديد العقد' : action === 'terminate' ? 'إنهاء العقد' : action === 'invoice' ? 'إصدار فاتورة استهلاك' : action === 'fee' ? 'إضافة رسم للعقد' : action === 'deposit' ? 'تسوية تأمين العقد' : 'تفعيل العقد'}>
+        okText={action === 'details' ? 'حفظ' : action === 'terminate' ? 'إنهاء العقد' : action === 'invoice' ? 'إصدار' : action === 'activate' ? 'تفعيل' : action === 'fee' ? 'إضافة' : action === 'deposit' ? 'تسوية' : 'تجديد'} okButtonProps={{ danger: action === 'terminate' }}
+        title={action === 'details' ? 'تفاصيل العقد' : action === 'renew' ? 'تجديد العقد' : action === 'terminate' ? 'إنهاء العقد' : action === 'invoice' ? 'إصدار فاتورة استهلاك' : action === 'fee' ? 'إضافة رسم للعقد' : action === 'deposit' ? 'تسوية تأمين العقد' : 'تفعيل العقد'}>
         <Form form={form} layout="vertical">
           {action === 'renew' && (<>
             <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>ينتهي العقد في {d10(c?.endDate)} — يُمدد بنفس الرسوم والشروط.</Text>
@@ -245,6 +267,20 @@ export default function ContractDrawer({ contractId, onClose, onChanged, onOpenU
             <Form.Item name="refund" valuePropName="checked"><Checkbox>إعادة الباقي للعميل</Checkbox></Form.Item>
             <Form.Item name="refundMethod" label="طريقة الإعادة"><Select options={[{ value: 'cash', label: 'نقداً' }, { value: 'bank_transfer', label: 'تحويل بنكي' }, { value: 'cheque', label: 'شيك' }]} /></Form.Item>
             <Form.Item name="reference" label="المرجع"><Input /></Form.Item>
+          </>)}
+          {action === 'details' && (<>
+            <Form.Item name="serviceType" label="نوع الخدمة">
+              <Radio.Group optionType="button" buttonStyle="solid" options={serviceTypeOptions(ref?.lookups?.CONTRACT_SERVICE_TYPE)} />
+            </Form.Item>
+            <Form.Item name="usageType" label="نوع العقد">
+              <Radio.Group optionType="button" buttonStyle="solid" options={usageTypeOptions(ref?.lookups?.CONTRACT_USAGE_TYPE)} />
+            </Form.Item>
+            <Form.Item name="billDelivery" label="طريقة استلام الفاتورة">
+              <Checkbox.Group options={[{ value: 'email', label: 'البريد الإلكتروني' }, { value: 'post', label: 'صندوق البريد' }]} />
+            </Form.Item>
+            <Form.Item name="billingCycleMonths" label="فاتورة واحدة كل">
+              <Select allowClear options={[1, 2, 3, 6, 12].map(m => ({ value: m, label: m === 1 ? 'شهر (شهرياً)' : m === 3 ? '3 أشهر (ربع سنوي)' : `${m} أشهر` }))} />
+            </Form.Item>
           </>)}
           {action === 'fee' && (<>
             <Form.Item name="type" label="البند" rules={[{ required: true }]}><Select options={FEE_TYPES.map(({ value, label }) => ({ value, label }))} onChange={() => form.setFieldsValue({ cycle: undefined })} /></Form.Item>

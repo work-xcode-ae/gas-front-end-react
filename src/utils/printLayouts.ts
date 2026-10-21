@@ -5,6 +5,7 @@
  *  - annual maintenance contract → bilingual articles, English on the left and Arabic on the right
  * Pure functions (data in → HTML out) so they can be rendered and checked outside the app.
  */
+import { fillTerm, type TermValues } from './termFields';
 
 export interface PrintAssets { letterhead: string; logo: string; logoAmc: string }
 
@@ -73,13 +74,8 @@ const ORD_EN = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh
 const ORD_AR = ['الاول', 'الثاني', 'الثالث', 'الرابع', 'الخامس', 'السادس', 'السابع', 'الثامن', 'التاسع', 'العاشر', 'الحادي عشر', 'الثاني عشر', 'الثالث عشر', 'الرابع عشر', 'الخامس عشر'];
 const ORD_AR_F = ['الأولى', 'الثانية', 'الثالثة', 'الرابعة', 'الخامسة', 'السادسة', 'السابعة', 'الثامنة', 'التاسعة', 'العاشرة', 'الحادية عشرة', 'الثانية عشرة'];
 
-/** Fill {placeholders} of a contract term with the contract's values. */
-export function fillTerm(text: string, values: Record<string, string>) {
-  return text.replace(/\{(\w+)\}/g, (_m, k) => (values[k] != null && values[k] !== '' ? values[k] : '........'));
-}
-
 const PRINT_SCRIPT = `<script>
-  function go(){ setTimeout(function(){ window.focus(); window.print(); }, 300); }
+  function go(){ setTimeout(function(){ if (window.__fit) window.__fit(); window.focus(); window.print(); }, 300); }
   var imgs = Array.prototype.slice.call(document.images);
   Promise.all(imgs.map(function(i){ return i.complete ? 0 : new Promise(function(r){ i.onload = i.onerror = r; }); }))
     .then(function(){ return document.fonts && document.fonts.ready; }).then(go);
@@ -113,7 +109,7 @@ export interface Company {
   signatoryNameEn?: string | null; signatoryNameAr?: string | null; signatoryTitleEn?: string | null; signatoryTitleAr?: string | null;
 }
 
-const SERVICE_TYPES = new Set(['meter_rent', 'inspection', 'insurance', 'cd_service']);
+const SERVICE_TYPES = new Set(['service', 'meter_rent', 'inspection', 'insurance', 'cd_service']);
 
 const INVOICE_CSS = `
 @page { size: A4; margin: 0; }
@@ -244,7 +240,10 @@ export function invoiceHtml(d: InvoicePrintData, a: PrintAssets, now = new Date(
 export interface TermRow { category?: string; ar: string; en?: string | null; custom?: boolean }
 export interface SupplyContractPrintData {
   contract: { id: number; contractNo: string; startDate: string; endDate?: string | null; deposit: number; notes?: string | null; createdAt?: string;
-    openingReading?: number | null; openingDate?: string | null; status?: string };
+    openingReading?: number | null; openingDate?: string | null; status?: string;
+    serviceType?: string | null; usageType?: string | null; billByEmail?: boolean; billByPost?: boolean; billingCycleMonths?: number | null };
+  serviceTypes?: { code: string; nameEn?: string | null; nameAr?: string | null }[];
+  usageTypes?: { code: string; nameEn?: string | null; nameAr?: string | null }[];
   tenant: { code?: string; nameEn?: string | null; nameAr?: string | null; phone?: string | null; email?: string | null; poBox?: string | null;
     cityEn?: string | null; cityAr?: string | null; contacts?: { type?: string | null; value: string }[] };
   building: { code?: string | null; nameEn?: string | null; nameAr?: string | null; cityEn?: string | null };
@@ -285,18 +284,20 @@ td { vertical-align: middle; }
 .blk { border: 2px solid #000; }
 .blk td { border-top: 1px solid #000; height: 5.6mm; padding: 0 2mm; }
 .blk tr:first-child td { border-top: none; }
-.blk .k { width: 25mm; } .blk .c { width: 4mm; } .blk .ak { width: 26mm; text-align: right; }
+.blk .k { width: 30mm; } .blk .c { width: 4mm; } .blk .ak { width: 26mm; text-align: right; }
 .cv { text-align: center; font-weight: bold; }
-.blk2 td { height: 6.1mm; }
+.nb { font-weight: normal; }
+.cb { font-family: 'Segoe UI Symbol', 'DejaVu Sans', sans-serif; font-size: 10pt; }
+.blk2 td { height: 5.5mm; }
 .agree { display: flex; justify-content: space-between; font-weight: bold; margin: 2.4mm 0 1.6mm; padding: 0 1mm; font-family: Cambria, Caladea, Georgia, serif; }
 .cl { display: grid; grid-template-columns: 7mm 1fr 1fr 6mm; column-gap: 2mm; margin: 0 0 1.4mm; font-size: 7.6pt; font-family: Calibri, Carlito, 'Segoe UI', Arial, sans-serif; line-height: 1.35; }
 .cl .n { text-align: center; } .cl .ar { text-align: right; font-size: 7.4pt; }
 .fees { border: 2px solid #000; }
-.fees td { border: 1px solid #000; height: 7.4mm; padding: 0 3mm; }
+.fees td { border: 1px solid #000; height: 6.6mm; padding: 0 3mm; }
 .fees .c { text-align: center; }
 .fees .a { text-align: right; }
-.fwd { display: flex; justify-content: space-between; margin: 3mm 0 2mm; padding: 0 3mm; }
-.ifees td { height: 6.8mm; }
+.fwd { display: flex; justify-content: space-between; margin: 2.2mm 0 1.6mm; padding: 0 3mm; }
+.ifees td { height: 6.1mm; }
 .ifees .a { font-size: 10.5pt; }
 .small { font-size: 7.6pt; }
 .see { display: flex; justify-content: space-between; margin: .6mm 0 2mm; padding: 0 2mm; }
@@ -305,7 +306,7 @@ td { vertical-align: middle; }
 .signs { display: flex; justify-content: space-between; padding: 0 2mm; font-family: Cambria, Caladea, Georgia, serif; }
 .signs > div:last-child { text-align: right; }
 .signs .row { height: 5.6mm; line-height: 5.6mm; }
-.call { margin: 7mm 0 0 1mm; font-size: 7.6pt; font-family: Calibri, Carlito, Arial, sans-serif; }
+.call { margin: 3mm 0 0 1mm; font-size: 7.6pt; font-family: Calibri, Carlito, Arial, sans-serif; }
 .tt { text-align: center; font: bold 8.4pt Cambria, Caladea, Georgia, serif; margin: 2mm 0 5mm; }
 .term { display: grid; grid-template-columns: 9mm 96mm 1fr 9mm; column-gap: 0; margin-bottom: 4.6mm; break-inside: avoid; page-break-inside: avoid;
   font: 7.7pt/1.36 Calibri, Carlito, 'Segoe UI', Arial, sans-serif; }
@@ -327,15 +328,30 @@ export function supplyContractHtml(d: SupplyContractPrintData, a: PrintAssets, n
   const gasPrice = d.fees.filter(f => f.type === 'gas_price').map(f => Number(f.amount)).pop() ?? 0;
   const registration = fee(f => f.type === 'connection');
   const disconnection = fee(f => f.type === 'disconnection');
-  const maintenance = fee(f => f.type === 'maintenance' && f.cycle === 'monthly');
-  const service = fee(f => f.cycle === 'monthly' && f.type !== 'maintenance' && f.type !== 'gas_price' && f.type !== 'gov_fees');
-  const admin = fee(f => f.type === 'gov_fees' || (f.type === 'other' && f.cycle !== 'monthly') || f.type === 'cd_service');
+  const maintenance = fee(f => f.type === 'maintenance');
+  const service = fee(f => f.cycle === 'monthly' && !['maintenance', 'gas_price', 'gov_fees', 'admin'].includes(f.type ?? ''));
+  const admin = fee(f => f.type === 'admin' || f.type === 'gov_fees' || (f.type === 'other' && f.cycle !== 'monthly') || f.type === 'cd_service');
   const mobiles = [t.phone, ...(t.contacts ?? []).filter(x => x.type === 'mobile').map(x => x.value)].filter((v, i, arr) => v && arr.indexOf(v) === i) as string[];
   const tels = (t.contacts ?? []).filter(x => x.type === 'phone').map(x => x.value);
-  const values: Record<string, string> = {
+  const pick = (list: SupplyContractPrintData['serviceTypes'], code?: string | null) => list?.find(o => o.code === code);
+  const svcT = pick(d.serviceTypes, c.serviceType);
+  const useT = pick(d.usageTypes, c.usageType);
+  const months = c.billingCycleMonths ?? null;
+  const values: TermValues = {
     advance_total: plain(registration + Number(c.deposit ?? 0) + disconnection), connection_fee: plain(registration), deposit: plain(c.deposit),
-    disconnection_fee: disconnection ? plain(disconnection) : '', gas_price: plain(gasPrice), service_fee: plain(service), billing_months: '',
+    disconnection_fee: disconnection ? plain(disconnection) : '', gas_price: plain(gasPrice), service_fee: plain(service),
+    maintenance_fee: plain(maintenance), admin_fee: plain(admin), billing_months: months ? String(months) : '',
+    customer_name: { en: t.nameEn || t.nameAr, ar: t.nameAr || t.nameEn }, contract_no: c.contractNo,
+    start_date: { en: dmy(c.startDate), ar: ymdSlash(c.startDate) }, end_date: { en: dmy(c.endDate), ar: ymdSlash(c.endDate) },
+    building: { en: d.building.nameEn || d.building.nameAr, ar: d.building.nameAr || d.building.nameEn }, flat_no: d.unitNo ?? '', meter_no: d.meterNo ?? '',
+    contract_type: useT ? { en: useT.nameEn, ar: useT.nameAr } : '', service_type: svcT ? { en: svcT.nameEn, ar: svcT.nameAr } : '',
+    company_name: { en: co.nameEn, ar: co.nameAr },
   };
+  const box = (on: boolean) => `<span class="cb">${on ? '&#9745;' : '&#9744;'}</span>`;
+  const svcBoxes = (d.serviceTypes ?? []).map(o => `${box(o.code === c.serviceType)} ${esc(o.nameEn)}`).join('&nbsp;&nbsp;&nbsp;');
+  const useBoxes = (d.usageTypes ?? []).map(o => `${box(o.code === c.usageType)} ${esc(o.nameEn)} / <span class="ar">${esc(o.nameAr)}</span>`).join('&nbsp;&nbsp;&nbsp;&nbsp;');
+  const billBoxes = `By E-Mail ${box(!!c.billByEmail)}&nbsp;&nbsp; By Post ${box(!!c.billByPost)}&nbsp;&nbsp;&nbsp;&nbsp; <span class="ar">البريد الإلكتروني</span> ${box(!!c.billByEmail)}&nbsp;&nbsp; <span class="ar">صندوق البريد</span> ${box(!!c.billByPost)}`;
+  const periodLabel = months === 1 ? 'Monthly' : months === 3 ? 'Quarterly' : months === 12 ? 'Yearly' : months ? `Every ${months} Months` : 'Monthly / Quarterly';
   const terms = d.terms.length ? d.terms : [];
   const first = terms[0];
   const name = upper(t.nameEn || t.nameAr);
@@ -346,7 +362,7 @@ export function supplyContractHtml(d: SupplyContractPrintData, a: PrintAssets, n
   const coRow = (k: string, v: string, ak: string) => `<tr><td class="k">${k}</td><td class="c">:</td><td class="cv" colspan="3">${v}</td><td class="c">:</td><td class="ak ar">${ak}</td></tr>`;
 
   const page1 = `
-<div class="page">
+<div class="page" id="p1">
  <div class="outer">
   <table class="head"><tr>
    <td class="logo" style="width:30mm"><img src="${a.logo}" alt=""></td>
@@ -370,13 +386,15 @@ export function supplyContractHtml(d: SupplyContractPrintData, a: PrintAssets, n
  <div class="party partyb"><span>Second Party: " The Customer"</span><span class="ar">"الطرف الثاني " الزبون</span></div>
  <table class="blk blk2"><colgroup><col class="k"><col class="c"><col><col><col><col class="c"><col class="ak"></colgroup>
   ${row('Mr./Mrs.', esc(name), 'السيد / السيده')}
-  ${row('Service Type', 'Central Gas', 'نوع الخدمة')}
+  ${row('Service Type', `<span class="nb">${svcBoxes}</span>`, 'نوع الخدمة')}
+  ${row('Contract Type', `<span class="nb">${useBoxes}</span>`, 'نوع العقد')}
   ${row('Building Name', esc(upper(bLine)), 'اسم البنايه')}
   ${row('Flat No.', esc(d.unitNo ?? ''), 'رقم الشقه')}
   <tr><td class="k">Tel 1</td><td class="c">:</td><td style="text-align:center">${esc(tels[0] ?? '')}</td><td><span class="ar">تليفون 1</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Tel 2&nbsp;&nbsp;:</td><td style="text-align:center">${esc(tels[1] ?? '')}</td><td class="c">:</td><td class="ak ar">تليفون 2</td></tr>
   <tr><td class="k">Mobile 1 :</td><td class="c">:</td><td style="text-align:center">${esc(mobiles[0] ?? '')}</td><td><span class="ar">جوال1</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Mobile 2&nbsp;&nbsp;:</td><td style="text-align:center">${esc(mobiles[1] ?? '')}</td><td class="c">:</td><td class="ak ar">جوال2</td></tr>
   ${row('P.O.Box/ Emirates', esc([t.poBox, t.cityEn].filter(Boolean).join(' / ')), 'صندوق البريد', false)}
-  ${row('E-Mail', esc(t.email ?? ''), 'البريد الالكتروني', false)}
+  ${row('E-Mail', esc(t.email ?? ''), 'البريد الالكتروني')}
+  ${row('Bill Delivery method:', `<span class="nb">${billBoxes}</span>`, 'طريقة استلام الفاتورة')}
  </table>
 
  <div class="agree"><span>The two parties have agreed on the following terms and conditions:</span><span class="ar" style="font-size:7.4pt">اتفق الطرفان على الشروط و الأحكام التاليه</span></div>
@@ -392,7 +410,7 @@ export function supplyContractHtml(d: SupplyContractPrintData, a: PrintAssets, n
 
  <div class="fwd"><span>The first party forwards the gas consumption invoice as detailed below:</span><span class="ar">يقدم الطرف الاول فاتوره استهلاك الغاز على حسب الرسوم الموضحه ادناه</span></div>
  <table class="fees ifees"><colgroup><col style="width:58mm"><col><col style="width:62mm"></colgroup>
-  <tr><td class="small">Period: One Invoice Each :</td><td class="c small">Monthly / Quarterly</td><td class="a ar">المده:&nbsp; كل فاتوره</td></tr>
+  <tr><td class="small">Period: One Invoice Each :</td><td class="c small">${periodLabel}</td><td class="a ar">المده:&nbsp; كل فاتوره</td></tr>
   <tr><td class="small">Monthly Service Charges&nbsp; :</td><td class="c">${plain(service)}</td><td class="a ar">رسوم الخدمه الشهريه</td></tr>
   <tr><td class="small">Gas Price :</td><td class="c">${plain(gasPrice)}</td><td class="a ar">سعر الغاز بالمتر المكعب</td></tr>
   <tr><td class="small">Maintenance Charges :</td><td class="c">${plain(maintenance)}</td><td class="a ar">مصاريف صيانة</td></tr>
@@ -412,8 +430,8 @@ export function supplyContractHtml(d: SupplyContractPrintData, a: PrintAssets, n
   const page2 = `
 <div class="page break">
  <div class="tt">Terms &amp; Conditions</div>
- ${terms.map((x, i) => `<div class="term"><div class="n">${i + 1}</div><div class="en">${nl(fillTerm(x.en ?? '', values))}</div>
-   <div class="ar">${nl(fillTerm(x.ar, values))}</div><div class="n">${i + 1}</div></div>`).join('')}
+ ${terms.map((x, i) => `<div class="term"><div class="n">${i + 1}</div><div class="en">${nl(fillTerm(x.en ?? '', values, 'en'))}</div>
+   <div class="ar">${nl(fillTerm(x.ar, values, 'ar'))}</div><div class="n">${i + 1}</div></div>`).join('')}
  ${c.notes ? `<div class="term"><div class="n"></div><div class="en"><b>Remarks:</b> ${nl(c.notes)}</div><div class="ar"></div><div class="n"></div></div>` : ''}
 </div>`;
 
@@ -434,7 +452,9 @@ export function supplyContractHtml(d: SupplyContractPrintData, a: PrintAssets, n
    <div class="row">اسم: <span class="dash"></span></div>
    <div class="row">إمضاء: <span class="dash"></span></div></div></div>
 </div>`;
-  return documentHtml(`Gas Supply Contract ${c.contractNo}`, CONTRACT_CSS.replace('var(--gen)', gen), page1 + page2 + page3);
+  // page 1 must stay on one sheet whatever the fonts on this PC: shrink it slightly when it is taller than the printable area
+  const fit = `<script>window.__fit=function(){var p=document.getElementById('p1');if(!p)return;p.style.zoom='';var max=Math.floor(276*96/25.4);var h=p.getBoundingClientRect().height;if(h>max){p.style.zoom=(Math.floor(max/h*1000)/1000).toString();}};window.__fit();</script>`;
+  return documentHtml(`Gas Supply Contract ${c.contractNo}`, CONTRACT_CSS.replace('var(--gen)', gen), page1 + fit + page2 + page3);
 }
 
 // ═════════════════════════════════════ ANNUAL MAINTENANCE CONTRACT ═════════════════════════════════════
@@ -567,6 +587,12 @@ export function amcContractHtml(d: AmcPrintData, a: PrintAssets) {
   const A = (enBody: string, arBody: string, opts: { just?: boolean } = {}) => { const i = art++; return H(`${ORD_EN[i]} Article`, `البند ${ORD_AR[i]}`, enBody, arBody, opts); };
 
   const extra = d.terms.filter(t => t.ar || t.en);
+  const amcValues: TermValues = {
+    owner_name: { en: ownerEn, ar: ownerAr }, contract_no: c.contractNo, start_date: { en: dmy(c.startDate), ar: ymdSlash(c.startDate) },
+    end_date: { en: dmy(c.endDate), ar: ymdSlash(c.endDate) }, building: { en: b.nameEn || b.nameAr, ar: b.nameAr || b.nameEn },
+    contract_value: int(c.annualValue), yearly_value: int(value), visits_total: c.visitsTotal ?? '', response_hours: c.responseTimeHours ?? '',
+    company_name: { en: coEn, ar: coAr },
+  };
   const body = `
   <div class="logo"><img src="${a.logoAmc}" alt=""></div>
   <div class="row" style="margin-bottom:9mm"><div class="en title">Gas Supply &amp; Annual Maintenance Contract</div><div class="ar title" style="font-size:14pt">عقد صيانة اعمال وتزويد الغاز المركزى</div></div>
@@ -612,7 +638,7 @@ export function amcContractHtml(d: AmcPrintData, a: PrintAssets) {
   ${A(`<div>${AMC_STATIC.art9En}</div>`, `<div>${AMC_STATIC.art9Ar}</div>`)}
   ${A(`<div>1-Any dispute arises out of this agreement shall be referred to jurisdiction of ${esc(cityEn)} courts</div><div>2-This agreement is issued in two copies and each party has one to act accordingly</div>`,
       `<div>1-اى نزاع ينشأ بخصوص هذا العقد يكون من اختصاص محاكم ${esc(cityAr)}</div><div>2-حرر هذا العقد من نسختين بيد كل طرف نسخة للعمل بموجبها</div>`)}
-  ${extra.length ? A(extra.map((t, i) => `<div>${i + 1}- ${nl(t.en || t.ar)}</div>`).join(''), extra.map((t, i) => `<div>${i + 1}- ${nl(t.ar || t.en)}</div>`).join('')) : ''}
+  ${extra.length ? A(extra.map((t, i) => `<div>${i + 1}- ${nl(fillTerm(t.en || t.ar, amcValues, 'en'))}</div>`).join(''), extra.map((t, i) => `<div>${i + 1}- ${nl(fillTerm(t.ar || t.en || '', amcValues, 'ar'))}</div>`).join('')) : ''}
   ${c.notes ? H('Remarks', 'ملاحظات', `<div>${nl(c.notes)}</div>`, `<div>${nl(c.notes)}</div>`) : ''}
   <div class="row sign" style="margin-top:14mm"><div class="en"><div class="g" style="text-decoration:underline">First Party:</div><div class="g">Mr.&nbsp; ${esc(ownerEn)}</div></div>
     <div class="ar"><div class="g" style="text-decoration:underline">الطرف الاول :</div><div class="g">السيد : ${esc(ownerAr)}</div></div></div>

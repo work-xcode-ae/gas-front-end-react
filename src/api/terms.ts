@@ -48,3 +48,10 @@ export const termsApi = {
 /** Body for the API (ContractService.TermItemInput). */
 export const toTermInputs = (items: ContractTermItem[]) =>
   items.map(x => ({ templateId: x.templateId ?? null, category: x.category, text: x.text.trim() })).filter(x => x.text);
+
+/** Choices of the gas contract details (from Settings → lists; these are the built-in ones used until the lists are loaded). */
+const SERVICE_TYPES_DEFAULT = [{ value: 'vip', label: 'VIP' }, { value: 'night_shift', label: 'وردية ليلية' }, { value: 'contract_delivery', label: 'توصيل العقد' }, { value: 'walk_in', label: 'حضور شخصي' }];
+const USAGE_TYPES_DEFAULT = [{ value: 'residential', label: 'سكني' }, { value: 'commercial', label: 'تجاري' }];
+type LookupList = { code: string; label: string }[] | undefined;
+export const serviceTypeOptions = (list: LookupList) => (list?.length ? list.map(l => ({ value: l.code, label: l.label })) : SERVICE_TYPES_DEFAULT);
+export const usageTypeOptions = (list: LookupList) => (list?.length ? list.map(l => ({ value: l.code, label: l.label })) : USAGE_TYPES_DEFAULT);

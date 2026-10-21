@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Button, Checkbox, Empty, Input, Spin, Tag, Tooltip, message } from 'antd';
+import { Button, Checkbox, Empty, Spin, Tag, Tooltip, message } from 'antd';
 import { CheckOutlined, CloseOutlined, DeleteOutlined, EditOutlined, PlusOutlined, RollbackOutlined, SettingOutlined } from '@ant-design/icons';
 import { errorMessage } from '../api/client';
 import { termCategory, termsApi, type ContractTermItem, type TermContractType, type TermOption } from '../api/terms';
+import { TermText, TermTextArea } from './TermFields';
 
 const PRIMARY = '#1a5c2a';
 let seq = 0;
@@ -75,7 +76,7 @@ const ContractTermsPicker: React.FC<Props> = ({ contractType, value, onChange })
 
   const editor = (
     <div className="tp-edit">
-      <Input.TextArea autoFocus autoSize={{ minRows: 2, maxRows: 6 }} value={draft} onChange={e => setDraft(e.target.value)} maxLength={1000} />
+      <TermTextArea autoFocus minRows={2} maxRows={6} value={draft} onChange={setDraft} contractType={contractType} />
       <div className="tp-edit-actions">
         <Button size="small" onClick={() => setEditing(null)} icon={<CloseOutlined />}>إلغاء</Button>
         <Button size="small" type="primary" onClick={saveEdit} icon={<CheckOutlined />} style={{ background: PRIMARY, borderColor: PRIMARY }}>حفظ لهذا العقد</Button>
@@ -139,8 +140,8 @@ const ContractTermsPicker: React.FC<Props> = ({ contractType, value, onChange })
                     {on && editing === it!.key ? editor : (
                       <>
                         <div style={{ flex: 1 }}>
-                          <div className="tp-text">{on ? it!.text : o.text}</div>
-                          {changed && <><Tag color="gold" style={{ fontSize: 10.5, marginTop: 4 }}>معدّل لهذا العقد</Tag><div className="tp-orig">{o.text}</div></>}
+                          <div className="tp-text"><TermText text={on ? it!.text : o.text} /></div>
+                          {changed && <><Tag color="gold" style={{ fontSize: 10.5, marginTop: 4 }}>معدّل لهذا العقد</Tag><div className="tp-orig"><TermText text={o.text} /></div></>}
                         </div>
                         {on && (
                           <span className="tp-actions">
@@ -165,7 +166,7 @@ const ContractTermsPicker: React.FC<Props> = ({ contractType, value, onChange })
             <PlusOutlined style={{ color: '#1565c0', marginTop: 6 }} />
             {editing === it.key ? editor : (
               <>
-                <div className="tp-text">{it.text}</div>
+                <div className="tp-text"><TermText text={it.text} /></div>
                 <span className="tp-actions">
                   <Tooltip title="تعديل"><Button size="small" type="text" icon={<EditOutlined />} onClick={() => startEdit(it)} /></Tooltip>
                   <Tooltip title="حذف"><Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => onChange(items.filter(i => i.key !== it.key))} /></Tooltip>
@@ -175,8 +176,8 @@ const ContractTermsPicker: React.FC<Props> = ({ contractType, value, onChange })
           </div>
         ))}
         <div className="tp-add">
-          <Input.TextArea autoSize={{ minRows: 1, maxRows: 4 }} value={newText} onChange={e => setNewText(e.target.value)} maxLength={1000}
-            placeholder="اكتب بنداً خاصاً بهذا المستأجر / العقد…" onPressEnter={e => { if (!e.shiftKey) { e.preventDefault(); addCustom(); } }} />
+          <div style={{ flex: 1 }}><TermTextArea minRows={1} maxRows={4} value={newText} onChange={setNewText} contractType={contractType}
+            placeholder="اكتب بنداً خاصاً بهذا المستأجر / العقد…" onPressEnter={e => { if (!e.shiftKey) { e.preventDefault(); addCustom(); } }} /></div>
           <Button icon={<PlusOutlined />} onClick={addCustom} disabled={!newText.trim()}>إضافة</Button>
         </div>
       </div>

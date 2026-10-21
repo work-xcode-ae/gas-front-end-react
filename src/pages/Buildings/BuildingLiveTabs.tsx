@@ -6,11 +6,12 @@ import {
 import {
   HomeOutlined, FireOutlined, ApartmentOutlined, BellOutlined, DollarOutlined, ToolOutlined, UserOutlined, BuildOutlined, StarFilled,
   PhoneOutlined, MailOutlined, PlusOutlined, EditOutlined, DeleteOutlined, UploadOutlined, FileTextOutlined, FilePdfOutlined,
-  FileImageOutlined, DownloadOutlined, EyeOutlined, ClockCircleOutlined, WarningOutlined, CheckCircleOutlined, DatabaseOutlined, SafetyCertificateOutlined,
+  FileImageOutlined, DownloadOutlined, EyeOutlined, ClockCircleOutlined, WarningOutlined, CheckCircleOutlined, DatabaseOutlined, SafetyCertificateOutlined, PrinterOutlined,
 } from '@ant-design/icons';
 import ReactApexChart from 'react-apexcharts';
 import type { UploadFile } from 'antd';
 import dayjs from 'dayjs';
+import { openPrintWindow, printInvoice } from '../../utils/printDocs';
 import { API_BASE, api, apiUpload, errorMessage, type Paged, authFetch } from '../../api/client';
 
 const { Text } = Typography;
@@ -531,6 +532,9 @@ export function BuildingFinanceLive({ buildingId }: { buildingId: number }) {
               <div><Tag color={INV_STATUS[s]?.color}>{INV_STATUS[s]?.label ?? i.statusLabel}</Tag>
                 {s === 'overdue' && <div style={{ fontSize: 10, color: '#ff4d4f' }}>متأخرة {dayjs().diff(dayjs(i.dueDate), 'day')} يوم</div>}
                 {s === 'paid' && i.paidDate && <div style={{ fontSize: 10, color: '#888' }}>سُددت {i.paidDate}</div>}</div>) },
+            { title: '', key: 'print', width: 48, render: (_, i) => (
+              <Button size="small" type="text" icon={<PrinterOutlined />} title="طباعة الفاتورة"
+                onClick={e => { e.stopPropagation(); printInvoice(openPrintWindow(), i.id); }} />) },
           ]} />
       </Card>
     </div>

@@ -16,7 +16,7 @@ import type { UnitDto } from '../../api/units';
 import UnitActionModal, { type UnitAction } from './UnitActionModal';
 import UnitMetersTab from './UnitMetersTab';
 import ContractTermsCard, { type ContractTermRow } from './ContractTermsCard';
-import { openPrintWindow, printInvoice, printReceipt } from '../../utils/printDocs';
+import { openPrintWindow, printInvoice, printReceipt, printSupplyContract } from '../../utils/printDocs';
 
 const { Text } = Typography;
 const PRIMARY = '#1a5c2a';
@@ -432,6 +432,8 @@ const UnitProfileDrawer: React.FC<Props> = ({ unit, buildingName, canManage, onC
                     loading={open === 'loading'} onClick={() => toggleHistoryInvoices(h.id)}>
                     {open && open !== 'loading' ? 'إخفاء الفواتير' : 'عرض فواتير هذا العقد'}
                   </Button>
+                  <Button type="link" size="small" style={{ padding: 0, marginTop: 6, marginInlineStart: 16, color: PRIMARY }} icon={<PrinterOutlined />}
+                    onClick={() => printSupplyContract(openPrintWindow(), h.id)}>طباعة العقد</Button>
                   {open && open !== 'loading' && (
                     <Table<InvoiceRow> size="small" style={{ marginTop: 6 }} dataSource={open} rowKey="id" pagination={open.length > 6 ? { pageSize: 6, size: 'small' } : false}
                       locale={{ emptyText: 'لا توجد فواتير لهذا العقد' }}

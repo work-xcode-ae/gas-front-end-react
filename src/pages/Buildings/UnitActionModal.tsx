@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Button, Checkbox, Col, DatePicker, Form, Input, InputNumber, Row, Select, Steps, Switch, Typography, message } from 'antd';
+import { Alert, Button, Checkbox, Col, DatePicker, Form, Input, InputNumber, Radio, Row, Select, Steps, Switch, Typography, message } from 'antd';
 import {
   CalendarOutlined, CheckCircleOutlined, DatabaseOutlined, DollarOutlined, FileTextOutlined, FireOutlined, HomeOutlined,
   IdcardOutlined, InboxOutlined, MailOutlined, PhoneOutlined, PlusCircleOutlined, SafetyCertificateOutlined, TeamOutlined,
@@ -11,9 +11,9 @@ import { useTranslation } from 'react-i18next';
 import { api, errorMessage, type Paged } from '../../api/client';
 import { useReference } from '../../api/reference';
 import type { UnitDto } from '../../api/units';
-import { openPrintWindow, printInvoice, printReceipt } from '../../utils/printDocs';
+import { openPrintWindow, printInvoice, printReceipt, printSupplyContract } from '../../utils/printDocs';
 import ContractTermsPicker from '../../components/ContractTermsPicker';
-import { toTermInputs, type ContractTermItem } from '../../api/terms';
+import { serviceTypeOptions, toTermInputs, usageTypeOptions, type ContractTermItem } from '../../api/terms';
 import ServiceRequestTracker, { AssigneePicker, PRIORITY_STYLE, SR_FLOW_CSS, SrFlow, useAssignees } from './ServiceRequestTracker';
 
 const { Text } = Typography;
@@ -188,7 +188,7 @@ const UnitActionModal: React.FC<Props> = ({ action, unit, onClose, onDone, onSav
     setStep(0);
     if (action === 'tenant') {
       setContractTerms(undefined);
-      form.setFieldsValue({ mode: 'new', nationality: 'AE', startDate: dayjs(), duration: 12, endDate: dayjs().add(12, 'month').subtract(1, 'day'), status: 'active', depositPaid: false, autoRenew: false, issueInitialInvoice: true });
+      form.setFieldsValue({ mode: 'new', nationality: 'AE', startDate: dayjs(), duration: 12, endDate: dayjs().add(12, 'month').subtract(1, 'day'), status: 'active', depositPaid: false, autoRenew: false, issueInitialInvoice: true, printContract: true, usageType: 'residential', billDelivery: ['email'], billingCycleMonths: 1 });
       api<Paged<TenantOption>>('/tenants', { query: { pageSize: 0 } }).then(r => setTenants(r.items)).catch(() => setTenants([]));
     }
     setLastRead(null);
@@ -242,7 +242,7 @@ const UnitActionModal: React.FC<Props> = ({ action, unit, onClose, onDone, onSav
     try { await form.validateFields(); } catch { return; }
     const v = form.getFieldsValue(true);
     // pop-up blockers only allow window.open directly inside the click → open it now, fill it after saving
-    const printWin = ((action === 'payment' || action === 'invoice') && v.print) || (action === 'terminate' && v.finalInvoice && v.print) || (action === 'reading' && v.issueInvoice && v.printInvoice && unit.contractId) ? openPrintWindow() : null;
+    const printWin = (action === 'tenant' && v.printContract) || ((action === 'payment' || action === 'invoice') && v.print) || (action === 'terminate' && v.finalInvoice && v.print) || (action === 'reading' && v.issueInvoice && v.printInvoice && unit.contractId) ? openPrintWindow() : null;
     const ctx = { unitNo: unit.no, buildingName: unit.buildingName, tenantPhone };
     let next: UnitAction | undefined;
     setSaving(true);
@@ -250,7 +250,9 @@ const UnitActionModal: React.FC<Props> = ({ action, unit, onClose, onDone, onSav
       if (action === 'tenant') {
         const fees = [
           v.gasPrice != null ? { type: 'gas_price', cycle: 'per_m3', amount: v.gasPrice, effectiveFrom: dateStr(v.startDate) } : null,
-          v.monthlyFee ? { type: 'maintenance', cycle: 'monthly', amount: v.monthlyFee, effectiveFrom: dateStr(v.startDate) } : null,
+          v.monthlyFee ? { type: 'service', cycle: 'monthly', amount: v.monthlyFee, effectiveFrom: dateStr(v.startDate) } : null,
+          v.maintenanceFee ? { type: 'maintenance', cycle: 'monthly', amount: v.maintenanceFee, effectiveFrom: dateStr(v.startDate) } : null,
+          v.adminFee ? { type: 'admin', cycle: 'one_time', amount: v.adminFee, effectiveFrom: dateStr(v.startDate) } : null,
           v.connectionFee ? { type: 'connection', cycle: 'one_time', amount: v.connectionFee, effectiveFrom: dateStr(v.startDate) } : null,
           v.disconnectionFee ? { type: 'disconnection', cycle: 'one_time', amount: v.disconnectionFee, effectiveFrom: dateStr(v.startDate) } : null,
         ].filter(Boolean);
@@ -261,15 +263,22 @@ const UnitActionModal: React.FC<Props> = ({ action, unit, onClose, onDone, onSav
           depositAmount: v.depositAmount ?? null, depositPaid: !!v.depositPaid, depositDate: v.depositPaid ? dateStr(dayjs()) : undefined,
           autoRenew: !!v.autoRenew, issueInitialInvoice: !!v.issueInitialInvoice, fees,
           termItems: toTermInputs(contractTerms ?? []),
+          serviceType: v.serviceType || undefined, usageType: v.usageType || undefined,
+          billByEmail: (v.billDelivery ?? []).includes('email'), billByPost: (v.billDelivery ?? []).includes('post'),
+          billingCycleMonths: v.billingCycleMonths ?? undefined,
         };
+        let contractId: number | undefined;
         if (v.mode === 'new') {
-          await api('/tenants', { body: {
+          const r = await api<{ contractId?: number }>('/tenants', { body: {
             nameAr: v.nameAr?.trim(), nameEn: v.nameEn?.trim() || undefined, phone: v.phone?.trim(), email: v.email?.trim() || undefined,
             emiratesId: v.emiratesId?.trim() || undefined, nationality: v.nationality, unitId: unit.id, contract,
           } });
+          contractId = r?.contractId;
         } else {
-          await api('/supply-contracts', { body: { ...contract, tenantId: v.tenantId } });
+          const r = await api<{ id?: number }>('/supply-contracts', { body: { ...contract, tenantId: v.tenantId } });
+          contractId = r?.id;
         }
+        if (printWin) { if (contractId) printSupplyContract(printWin, contractId); else printWin.close(); }
         message.success(`تم ربط المستأجر بالوحدة ${unit.no}`);
       }
       if (action === 'meter') {
@@ -610,9 +619,28 @@ const UnitActionModal: React.FC<Props> = ({ action, unit, onClose, onDone, onSav
                         <InputNumber min={0} step={0.1} style={{ width: '100%' }} placeholder="0.00" addonAfter="د.إ / م³" />
                       </Form.Item>
                     </Col>
-                    <Col xs={24} md={12}>{amount('monthlyFee', 'رسوم شهرية')}</Col>
-                    <Col xs={24} md={12}>{amount('connectionFee', 'رسوم التوصيل', 'مرة واحدة — في الفاتورة الأولية')}</Col>
+                    <Col xs={24} md={12}>{amount('monthlyFee', 'رسوم الخدمة الشهرية', 'Monthly service charges')}</Col>
+                    <Col xs={24} md={12}>{amount('maintenanceFee', 'رسوم صيانة شهرية')}</Col>
+                    <Col xs={24} md={12}>{amount('connectionFee', 'رسوم التوصيل / التسجيل', 'مرة واحدة — في الفاتورة الأولية')}</Col>
                     <Col xs={24} md={12}>{amount('disconnectionFee', 'رسوم القطع', 'مرة واحدة — في الفاتورة الأولية')}</Col>
+                    <Col xs={24} md={12}>{amount('adminFee', 'رسوم إدارية', 'مرة واحدة — في الفاتورة الأولية')}</Col>
+                  </Row>
+                </Section>
+
+                <Section icon={<IdcardOutlined />} title="تفاصيل العقد" hint="تظهر في نموذج العقد المطبوع" tone="#6a1b9a">
+                  <Row gutter={12}>
+                    <Col xs={24} md={12}><Form.Item name="serviceType" label="نوع الخدمة">
+                      <Radio.Group optionType="button" buttonStyle="solid" options={serviceTypeOptions(ref?.lookups?.CONTRACT_SERVICE_TYPE)} />
+                    </Form.Item></Col>
+                    <Col xs={24} md={12}><Form.Item name="usageType" label="نوع العقد">
+                      <Radio.Group optionType="button" buttonStyle="solid" options={usageTypeOptions(ref?.lookups?.CONTRACT_USAGE_TYPE)} />
+                    </Form.Item></Col>
+                    <Col xs={24} md={12}><Form.Item name="billDelivery" label="طريقة استلام الفاتورة">
+                      <Checkbox.Group options={[{ value: 'email', label: 'البريد الإلكتروني' }, { value: 'post', label: 'صندوق البريد' }]} />
+                    </Form.Item></Col>
+                    <Col xs={24} md={12}><Form.Item name="billingCycleMonths" label="فاتورة واحدة كل">
+                      <Select options={[1, 2, 3, 6, 12].map(m => ({ value: m, label: m === 1 ? 'شهر (شهرياً)' : m === 3 ? '3 أشهر (ربع سنوي)' : m === 12 ? '12 شهراً (سنوي)' : `${m} أشهر` }))} />
+                    </Form.Item></Col>
                   </Row>
                 </Section>
 
@@ -636,6 +664,10 @@ const UnitActionModal: React.FC<Props> = ({ action, unit, onClose, onDone, onSav
                   <div className="ua-toggle">
                     <div><div className="ua-toggle-title"><FileTextOutlined style={{ marginInlineEnd: 6, color: PRIMARY }} />إصدار فاتورة أولية</div><div className="ua-toggle-desc">برسوم التوصيل ورسوم القطع والوديعة غير المسددة</div></div>
                     <Form.Item name="issueInitialInvoice" valuePropName="checked" noStyle><Switch /></Form.Item>
+                  </div>
+                  <div className="ua-toggle">
+                    <div><div className="ua-toggle-title"><PrinterOutlined style={{ marginInlineEnd: 6, color: PRIMARY }} />طباعة العقد بعد الحفظ</div><div className="ua-toggle-desc">يفتح عقد توريد الغاز جاهزاً للطباعة والتوقيع</div></div>
+                    <Form.Item name="printContract" valuePropName="checked" noStyle><Switch /></Form.Item>
                   </div>
                 </Section>
 
