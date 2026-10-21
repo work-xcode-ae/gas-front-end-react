@@ -317,7 +317,12 @@ td { vertical-align: middle; }
 .sg .l .row { height: 8mm; font-weight: bold; } .sg .l .row:first-child { font-weight: normal; }
 .sg .r { text-align: right; font: 8.4pt Arial, sans-serif; direction: rtl; width: 75mm; }
 .sg .r .row { height: 8mm; }
-.dash { display: inline-block; width: 46mm; border-bottom: 1px dashed #000; margin: 0 2mm; }
+.dash { display: inline-block; width: 60mm; border-bottom: 1px dashed #000; margin: 0 2mm; vertical-align: bottom; }
+.sg3 { margin-top: 4mm; font: 9pt Cambria, Caladea, Georgia, serif; }
+.sg3 td { height: 11mm; vertical-align: bottom; padding: 0 6mm; }
+.sg3 td.ar { text-align: right; font-size: 10pt; }
+.sg3 .h { font-weight: bold; height: 9mm; }
+.sg3 .gap td { height: 10mm; }
 `;
 
 export function supplyContractHtml(d: SupplyContractPrintData, a: PrintAssets, now = new Date()) {
@@ -437,20 +442,18 @@ export function supplyContractHtml(d: SupplyContractPrintData, a: PrintAssets, n
 
   const page3 = `
 <div class="page break">
- <div class="sg"><div class="l">
-   <div class="row">For First Party :</div>
-   <div class="row" style="margin-top:6mm">Name: <span class="dash"></span></div>
-   <div class="row">Signature: <span class="dash"></span></div>
-   <div class="row" style="margin-top:2mm">For the second Party :</div>
-   <div class="row">Name: <span class="dash"></span></div>
-   <div class="row">Signature : <span class="dash"></span></div></div>
-  <div class="r">
-   <div class="row">للطرف الأول:</div>
-   <div class="row">اسم: <span class="dash"></span></div>
-   <div class="row">إمضاء: <span class="dash"></span></div>
-   <div class="row">للطرف الثاني:</div>
-   <div class="row">اسم: <span class="dash"></span></div>
-   <div class="row">إمضاء: <span class="dash"></span></div></div></div>
+ <table class="sg3">
+  <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+  <tr><td class="h">For First Party :</td><td class="h ar">للطرف الأول :</td></tr>
+  <tr><td>Name : <b>${esc(cname)}</b></td><td class="ar">الاسم : <b>${esc(co.nameAr || cname)}</b></td></tr>
+  <tr><td>Signature : <span class="dash"></span></td><td class="ar">الإمضاء : <span class="dash"></span></td></tr>
+  <tr><td>Date : <span class="dash" style="width:30mm"></span></td><td class="ar">التاريخ : <span class="dash" style="width:30mm"></span></td></tr>
+  <tr class="gap"><td colspan="2"></td></tr>
+  <tr><td class="h">For the Second Party :</td><td class="h ar">للطرف الثاني :</td></tr>
+  <tr><td>Name : <b>${esc(name)}</b></td><td class="ar">الاسم : <b>${esc(t.nameAr || t.nameEn || '')}</b></td></tr>
+  <tr><td>Signature : <span class="dash"></span></td><td class="ar">الإمضاء : <span class="dash"></span></td></tr>
+  <tr><td>Date : <span class="dash" style="width:30mm"></span></td><td class="ar">التاريخ : <span class="dash" style="width:30mm"></span></td></tr>
+ </table>
 </div>`;
   // page 1 must stay on one sheet whatever the fonts on this PC: shrink it slightly when it is taller than the printable area
   const fit = `<script>window.__fit=function(){var p=document.getElementById('p1');if(!p)return;p.style.zoom='';var max=Math.floor(276*96/25.4);var h=p.getBoundingClientRect().height;if(h>max){p.style.zoom=(Math.floor(max/h*1000)/1000).toString();}};window.__fit();</script>`;
