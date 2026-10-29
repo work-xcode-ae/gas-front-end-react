@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import BuildingProfile from './BuildingProfile';
 import {
   Row, Col, Card, Table, Button, Tag, Input, Select, Space, InputNumber,
-  Modal, Form, Typography, Statistic, Divider, Tooltip, Badge, Steps, Result, Upload, Alert, message
+  Modal, Form, Typography, Statistic, Divider, Tooltip, Badge, Steps, Result, Upload, Alert, message, Segmented
 } from 'antd';
 import {
   BankOutlined, PlusOutlined, SearchOutlined, EyeOutlined,
@@ -20,6 +20,7 @@ import { useAuth } from '../../auth/AuthContext';
 import EditBuildingModal from './EditBuildingModal';
 import { useGlobalFilters } from '../../context/GlobalFilters';
 import { useSearchParams } from 'react-router-dom';
+import { premisesApi } from '../../api/premises';
 
 const { Title, Text } = Typography;
 const { Option } = Select;
@@ -119,6 +120,9 @@ const Buildings: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState<string | undefined>(global.buildingType);
   useEffect(() => { setBranchFilter(global.branchId); setPage(1); }, [global.branchId]);
   useEffect(() => { setTypeFilter(global.buildingType); setPage(1); }, [global.buildingType]);
+  // Restaurants & Villas: optional filter (undefined = everything, as before) + villa / restaurant tags per row
+  const [kindFilter, setKindFilter] = useState<string | undefined>();
+  const [siteMap, setSiteMap] = useState<Record<number, { villaId?: number | null; restaurants: number }>>({});
   useEffect(() => { if (global.searchNonce) { setSearchInput(global.search); setSearch(global.search); setPage(1); } }, [global.searchNonce]); // eslint-disable-line react-hooks/exhaustive-deps
   const [searchParams, setSearchParams] = useSearchParams();
   const [page, setPage] = useState(1);
@@ -174,12 +178,15 @@ const Buildings: React.FC = () => {
   useEffect(() => {
     const ctrl = new AbortController();
     setLoading(true);
-    buildingsApi.list({ page, pageSize, search: search || undefined, branchId: branchFilter, status: statusFilter, type: typeFilter }, ctrl.signal)
+    buildingsApi.list({ page, pageSize, search: search || undefined, branchId: branchFilter, status: statusFilter, type: typeFilter, kind: kindFilter }, ctrl.signal)
       .then(res => { setRows(res.items); setTotal(res.total); setListError(null); })
       .catch(e => { if (e?.name !== 'AbortError') setListError(errorMessage(e)); })
       .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });
     return () => ctrl.abort();
-  }, [page, pageSize, search, branchFilter, statusFilter, typeFilter, reloadKey, i18n.language]);
+  }, [page, pageSize, search, branchFilter, statusFilter, typeFilter, kindFilter, reloadKey, i18n.language]);
+  useEffect(() => {
+    premisesApi.byBuilding().then(r => setSiteMap(Object.fromEntries(r.map(x => [x.buildingId, x])))).catch(() => setSiteMap({}));
+  }, [reloadKey]);
 
   // load KPIs + charts
   useEffect(() => {
@@ -424,6 +431,8 @@ const Buildings: React.FC = () => {
       render: (v: string, r: BuildingListItem) => (
         <div>
           <a onClick={e => { e.stopPropagation(); openProfile(r, 'units'); }} style={{ fontWeight: 600, color: PRIMARY }}>{v}</a>
+          {siteMap[r.id]?.villaId && <Tag color="purple" style={{ marginInlineStart: 6 }}><HomeOutlined /> فيلا</Tag>}
+          {(siteMap[r.id]?.restaurants ?? 0) > 0 && <Tag color="volcano" style={{ marginInlineStart: 6 }}><ShopOutlined /> {siteMap[r.id].restaurants} مطعم</Tag>}
           {(r.city || r.primaryOwner) && <div style={{ fontSize: 11, color: '#999' }}>{[r.city, r.primaryOwner].filter(Boolean).join(' · ')}</div>}
         </div>
       ),
@@ -550,6 +559,8 @@ const Buildings: React.FC = () => {
           <Select placeholder="الحالة" style={{ width: 120 }} allowClear value={statusFilter} onChange={v => { setStatusFilter(v); setPage(1); }}>
             {buildingStatuses.map(s => <Option key={s.code} value={s.code}>{s.label}</Option>)}
           </Select>
+          <Segmented value={kindFilter ?? 'all'} onChange={v => { setKindFilter(v === 'all' ? undefined : String(v)); setPage(1); }}
+            options={[{ value: 'all', label: 'الكل' }, { value: 'building', label: 'المباني' }, { value: 'villa', label: 'الفلل' }, { value: 'restaurant', label: 'فيها مطاعم' }]} />
         </div>
         {listError && <Alert type="error" showIcon style={{ margin: 16, borderRadius: 8 }} message={listError}
           action={<Button size="small" onClick={reload}>إعادة المحاولة</Button>} />}
@@ -633,7 +644,7 @@ const Buildings: React.FC = () => {
                   </Form.Item>
                   <Form.Item name="type" label="نوع المبنى" rules={[{ required: true, message: 'الرجاء اختيار نوع المبنى' }]}>
                     <Select placeholder="اختر نوع المبنى" size="large" style={{ borderRadius: 8 }}>
-                      {buildingTypes.map(t => (
+                      {buildingTypes.filter(t => t.code !== 'villa').map(t => (
                         <Option key={t.code} value={t.code}>
                           {t.code === 'commercial' ? <ShopOutlined style={{ marginInlineEnd: 6 }} /> : t.code === 'mixed' ? <BuildOutlined style={{ marginInlineEnd: 6 }} /> : <HomeOutlined style={{ marginInlineEnd: 6 }} />}
                           {t.label}

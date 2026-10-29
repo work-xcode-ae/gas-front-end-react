@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Modal, Steps, Form, Input, InputNumber, Select, DatePicker,
   Button, Row, Col, Typography, Tag, Switch, Space,
@@ -150,6 +150,8 @@ const AddAmcContractModal: React.FC<Props> = ({
     EXCLUDED_CATALOGUE.slice(0, 3).map(s => s.id)
   );
   const [paymentPreview, setPaymentPreview] = useState<ReturnType<typeof buildPaymentSchedule>>([]);
+  // the schedule is rebuilt only when start / value / frequency change, so due dates the user edited are kept
+  const previewKey = useRef('');
   const [customIncluded, setCustomIncluded] = useState<string[]>([]);
   const [customExcluded, setCustomExcluded] = useState<string[]>([]);
   const [customIncInput, setCustomIncInput] = useState('');
@@ -184,6 +186,9 @@ const AddAmcContractModal: React.FC<Props> = ({
   const refreshPreview = () => {
     const v4 = form4.getFieldsValue(true);
     if (v4?.startDate && v4?.annualValue) {
+      const key = `${v4.startDate.format('YYYY-MM-DD')}|${v4.annualValue}|${v4.paymentFreq ?? 'annual'}`;
+      if (key === previewKey.current) return;
+      previewKey.current = key;
       setPaymentPreview(buildPaymentSchedule(v4.startDate, v4.annualValue, v4.paymentFreq ?? 'annual'));
     }
   };
@@ -206,6 +211,7 @@ const AddAmcContractModal: React.FC<Props> = ({
     setSelectedServices(SERVICE_CATALOGUE.filter(s => s.recommended).map(s => s.id));
     setExcludedServices(EXCLUDED_CATALOGUE.slice(0, 3).map(s => s.id));
     setPaymentPreview([]);
+    previewKey.current = '';
     setCustomIncluded([]); setCustomExcluded([]);
     setCustomIncInput(''); setCustomExcInput('');
     setAmcTerms(undefined);
@@ -230,7 +236,12 @@ const AddAmcContractModal: React.FC<Props> = ({
     const visitFreq = v3.visitFrequency ?? 'quarterly';
     const visitOpt = VISIT_FREQ_OPTIONS.find(o => o.value === visitFreq) ?? VISIT_FREQ_OPTIONS[2];
     const schedule = buildVisitSchedule(start, visitFreq);
-    const payments = buildPaymentSchedule(start, v4.annualValue, v4.paymentFreq ?? 'annual');
+    // the previewed schedule, with any due dates the user changed (same start / value / frequency), else the default one
+    const payments = paymentPreview.length && previewKey.current === `${start.format('YYYY-MM-DD')}|${v4.annualValue}|${v4.paymentFreq ?? 'annual'}`
+      ? paymentPreview : buildPaymentSchedule(start, v4.annualValue, v4.paymentFreq ?? 'annual');
+    const badDate = payments.find((p, i) => dayjs(p.dueDate).isBefore(start, 'day') || dayjs(p.dueDate).isAfter(end, 'day')
+      || (i > 0 && dayjs(p.dueDate).isBefore(dayjs(payments[i - 1].dueDate), 'day')));
+    if (badDate) { message.warning(`تاريخ ${badDate.label} يجب أن يكون داخل مدة العقد وبعد تاريخ الدفعة السابقة`); setStep(3); return; }
     const scope = [...selectedServices.map(id => SERVICE_CATALOGUE.find(x => x.id === id)!.label), ...customIncluded];
     const excluded = [...excludedServices.map(id => EXCLUDED_CATALOGUE.find(x => x.id === id)!.label), ...customExcluded];
     const pref = [v3.preferredDay ? `اليوم المفضل: ${v3.preferredDay}` : null, v3.preferredTime ? `الوقت المفضل: ${v3.preferredTime}` : null].filter(Boolean).join(' — ');
@@ -549,12 +560,17 @@ const AddAmcContractModal: React.FC<Props> = ({
           <Col span={24}>
             <div style={{ background: '#f6ffed', borderRadius: 10, padding: '14px', border: `1px solid ${PRIMARY}33` }}>
               <Text strong style={{ fontSize: 12, color: PRIMARY, display: 'block', marginBottom: 10 }}>
-                <BankOutlined style={{ marginInlineEnd: 6 }} />معاينة جدول الدفعات
+                <BankOutlined style={{ marginInlineEnd: 6 }} />معاينة جدول الدفعات<span style={{ fontWeight: 400, color: '#888', marginInlineStart: 8 }}>— يمكنك تغيير تاريخ استحقاق أي دفعة</span>
               </Text>
-              <Table size="small" pagination={false} dataSource={paymentPreview} rowKey="dueDate"
+              <Table size="small" pagination={false} dataSource={paymentPreview} rowKey="label"
                 columns={[
                   { title: 'الدفعة',          dataIndex: 'label',   render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text> },
-                  { title: 'تاريخ الاستحقاق', dataIndex: 'dueDate', render: (v: string) => <Text style={{ fontSize: 12 }}>{v}</Text> },
+                  { title: 'تاريخ الاستحقاق', dataIndex: 'dueDate', render: (v: string, _r: any, i: number) => (
+                    <DatePicker size="small" allowClear={false} format="DD/MM/YYYY" value={dayjs(v)} style={{ width: 140 }}
+                      disabledDate={d => { const v4 = form4.getFieldsValue(true); const st: Dayjs | undefined = v4?.startDate;
+                        const en: Dayjs | undefined = v4?.endDate ?? st?.add(1, 'year').subtract(1, 'day');
+                        return (!!st && d.isBefore(st, 'day')) || (!!en && d.isAfter(en, 'day')); }}
+                      onChange={d => d && setPaymentPreview(prev => prev.map((p, j) => (j === i ? { ...p, dueDate: d.format('YYYY-MM-DD') } : p)))} />) },
                   { title: 'المبلغ',           dataIndex: 'amount',  render: (v: number) => <Text strong style={{ color: PRIMARY, fontSize: 12 }}>{v.toLocaleString()} د.إ</Text> },
                 ]}
               />

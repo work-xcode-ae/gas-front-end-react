@@ -131,6 +131,8 @@ export interface BuildingListQuery {
   branchId?: number;
   status?: string;
   type?: string;
+  /** Restaurants & Villas: villa | restaurant (buildings with restaurants) | building (all but villas); omitted = everything */
+  kind?: string;
   cityId?: number;
   sort?: string;
   desc?: boolean;

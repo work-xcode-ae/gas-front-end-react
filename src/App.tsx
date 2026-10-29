@@ -27,6 +27,8 @@ import VehiclesPage from './pages/Vehicles';
 import EmployeesPage from './pages/Employees';
 import AssetsPage from './pages/Assets';
 import AccountingPage from './pages/Accounting';
+import RestaurantsPage from './pages/Premises/RestaurantsPage';
+import VillasPage from './pages/Premises/VillasPage';
 
 /** Sends signed-out users to /login (and back to the page they wanted afterwards). */
 const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -63,6 +65,8 @@ const AppContent: React.FC = () => {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/buildings" element={<Buildings />} />
+            <Route path="/villas" element={<VillasPage />} />
+            <Route path="/restaurants" element={<RestaurantsPage />} />
             <Route path="/apartments" element={<ApartmentsPage />} />
             <Route path="/customers" element={<CustomersPage />} />
             <Route path="/gas-contracts" element={<GasContractsPage />} />

@@ -47,6 +47,11 @@ import { api, errorMessage, type Paged } from '../../api/client';
 import { useAuth } from '../../auth/AuthContext';
 import { RefillRequestDrawer, NewRefillRequestModal, mapLiveRefill } from './RefillRequestDrawer';
 import type { RefillRequestItem } from './RefillRequestDrawer';
+import { ShopOutlined as RestaurantTabIcon } from '@ant-design/icons';
+import BuildingRestaurantsTab from '../Premises/BuildingRestaurantsTab';
+import VillaSiteTab from '../Premises/VillaSiteTab';
+import VillaServiceTab from '../Premises/VillaServiceTab';
+import SiteVisitsTab from '../Premises/SiteVisitsTab';
 import type { SupplyContractRecord } from './GasContractDrawer';
 import type { MeterServiceType } from './MeterServiceModal';
 import type { MeterRecord } from './meterTypes';
@@ -559,7 +564,9 @@ const unitPieOptions: any = {
   dataLabels: { enabled: true, formatter: (v: number) => `${Math.round(v)}%` },
 };
 
-interface BuildingProfileProps { onBack: () => void; buildingId?: number; initialTab?: string; }
+interface BuildingProfileProps { onBack: () => void; buildingId?: number; initialTab?: string;
+  /** Restaurants & Villas: villa mode (the building is a villa's own host building). Not passed = normal building. */
+  villaId?: number; }
 
 /** Live header data from GET /buildings/{id} (the other tabs are still mock data). */
 interface LiveBuilding {
@@ -569,8 +576,8 @@ interface LiveBuilding {
   stats: { units: number; occupied: number; vacant: number; meters?: number; tenants?: number; activeContracts?: number };
 }
 
-const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, initialTab }) => {
-  const [activeTab, setActiveTab] = useState(initialTab ?? (buildingId ? 'units' : 'overview'));
+const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, initialTab, villaId }) => {
+  const [activeTab, setActiveTab] = useState(initialTab ?? (villaId ? 'villa' : buildingId ? 'units' : 'overview'));
   const [live, setLive] = useState<LiveBuilding | null>(null);
   const [liveKey, setLiveKey] = useState(0);
   const [editOpen, setEditOpen] = useState(false);
@@ -738,7 +745,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
         </Col>
         <Col flex="auto">
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <Avatar size={40} icon={<BankOutlined />} style={{ background: 'rgba(255,255,255,0.2)', fontSize: 18, flexShrink: 0 }} />
+            <Avatar size={40} icon={villaId ? <HomeOutlined /> : <BankOutlined />} style={{ background: 'rgba(255,255,255,0.2)', fontSize: 18, flexShrink: 0 }} />
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <Title level={5} style={{ margin: 0, color: '#fff', fontSize: 17 }}>{hd.name}</Title>
@@ -754,11 +761,11 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
         </Col>
         <Col>
           <Space>
-            {canManageBuilding && <Tooltip title="تعديل بيانات المبنى"><Button icon={<EditOutlined />} onClick={() => setEditOpen(true)} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#fff' }} /></Tooltip>}
-            {canManageBuilding && (live?.status === 'inactive'
+            {canManageBuilding && !villaId && <Tooltip title="تعديل بيانات المبنى"><Button icon={<EditOutlined />} onClick={() => setEditOpen(true)} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#fff' }} /></Tooltip>}
+            {canManageBuilding && !villaId && (live?.status === 'inactive'
               ? <Tooltip title="تفعيل المبنى"><Button icon={<PlayCircleOutlined />} onClick={() => setBuildingStatus('active')} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#b7eb8f' }} /></Tooltip>
               : <Tooltip title="إيقاف المبنى (دون حذف)"><Button icon={<PauseCircleOutlined />} onClick={() => setBuildingStatus('inactive')} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#ffd591' }} /></Tooltip>)}
-            {canManageBuilding && <Tooltip title="حذف المبنى"><Button icon={<DeleteOutlined />} onClick={deleteBuilding} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#ffa39e' }} /></Tooltip>}
+            {canManageBuilding && !villaId && <Tooltip title="حذف المبنى"><Button icon={<DeleteOutlined />} onClick={deleteBuilding} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#ffa39e' }} /></Tooltip>}
             {buildingId && <HistoryButton entityType="Building" id={buildingId} title={`${hd.no} — ${hd.name}`} size="middle" label={null} type="default" />}
             <Tooltip title="طباعة"><Button icon={<PrinterOutlined />} onClick={() => window.print()} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#fff' }} /></Tooltip>
             <Tooltip title="حفظ PDF (اختر «حفظ كملف PDF» في نافذة الطباعة)"><Button icon={<FilePdfOutlined />} onClick={() => { const t = document.title; document.title = `${hd.no} - ${hd.name}`; window.print(); setTimeout(() => { document.title = t; }, 500); }} style={{ background: 'rgba(255,255,255,0.15)', borderColor: 'transparent', color: '#fff' }} /></Tooltip>
@@ -766,14 +773,21 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
         </Col>
       </Row>
       <Row style={{ marginTop: 10, background: 'rgba(255,255,255,0.08)', borderRadius: 10, padding: '6px 16px' }}>
-        {[
+        {(villaId ? [
+          { label: 'الخزانات', value: hd.tanks, icon: <DatabaseOutlined /> },
+          { label: 'طلبات التعبئة', value: refillRequests.length, icon: <FireOutlined /> },
+          { label: 'زيارات الصيانة', value: opsCounts?.visits ?? 0, icon: <CalendarOutlined /> },
+          { label: 'طلبات الخدمة', value: opsCounts?.service ?? 0, icon: <ToolOutlined /> },
+          { label: 'الطوابق', value: hd.floors, icon: <ApartmentOutlined /> },
+          { label: 'الملاك', value: hd.owners, icon: <TeamOutlined /> },
+        ] : [
           { label: 'الطوابق', value: hd.floors, icon: <ApartmentOutlined /> },
           { label: 'إجمالي الوحدات', value: hd.totalUnits, icon: <HomeOutlined /> },
           { label: 'مشغول', value: hd.occupied, icon: <CheckCircleOutlined /> },
           { label: 'شاغر', value: hd.vacant, icon: <ExclamationCircleOutlined /> },
           { label: 'الخزانات', value: hd.tanks, icon: <DatabaseOutlined /> },
           { label: 'الملاك', value: hd.owners, icon: <TeamOutlined /> },
-        ].map((k, i) => (
+        ]).map((k, i) => (
           <Col key={i} flex="1" style={{ textAlign: 'center', borderRight: i < 5 ? '1px solid rgba(255,255,255,0.15)' : undefined, padding: '2px 8px',
             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
             <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 11 }}>{k.icon} {k.label}</span>
@@ -2888,9 +2902,15 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
       children: buildingId
         ? <BuildingTenantsTab buildingId={buildingId} buildingName={hd.name} canManage={canManageBuilding} onChanged={() => setLiveKey(k => k + 1)} />
         : tenantsTab },
+    // Restaurants & Villas module (additive tabs)
+    ...(villaId ? [{ key: 'villa', label: <span><HomeOutlined /> الفيلا والعقد</span>,
+      children: <VillaSiteTab villaId={villaId} onGoTo={setActiveTab} onChanged={() => setLiveKey(k => k + 1)} /> }] : []),
+    ...(buildingId ? [{ key: 'restaurants', label: <span><RestaurantTabIcon /> المطاعم</span>,
+      children: <BuildingRestaurantsTab buildingId={buildingId} isVilla={(live as any)?.type === 'villa'} /> }] : []),
     { key: 'contracts', label: <span><SafetyCertificateOutlined /> عقود الغاز ({amcList.length + supplyList.length})</span>, children: contractsTab },
     { key: 'visits', label: <span><CalendarOutlined style={{ color: '#1677ff' }} /> زيارات الصيانة ({buildingId ? opsCounts?.visits ?? 0 : building.scheduledVisits.length})</span>,
-      children: buildingId ? <BuildingVisitsTab buildingId={buildingId} reloadKey={liveKey} /> : scheduledVisitsTab },
+      children: villaId && buildingId ? <SiteVisitsTab premisesId={villaId} buildingId={buildingId} reloadKey={liveKey} />
+        : buildingId ? <BuildingVisitsTab buildingId={buildingId} reloadKey={liveKey} /> : scheduledVisitsTab },
     { key: 'financials', label: <span><DollarOutlined /> الفواتير والمالية</span>,
       children: buildingId ? <BuildingFinanceLive key={liveKey} buildingId={buildingId} /> : financialsTab },
     { key: 'info', label: <span><BankOutlined /> معلومات المبنى</span>, children: infoTab },
@@ -2900,7 +2920,9 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
       children: buildingId ? <BuildingTanksYard buildingId={buildingId} canManage={canManageBuilding} reloadKey={liveKey} /> : tanksTab },
     { key: 'refill', label: <span><FireOutlined style={{ color: '#fa8c16' }} /> طلبات التعبئة ({refillRequests.length})</span>, children: refillTab },
     { key: 'service', label: <span><ToolOutlined /> طلبات الخدمة ({buildingId ? opsCounts?.service ?? 0 : building.serviceRequests.length})</span>,
-      children: buildingId ? <BuildingServiceRequestsTab buildingId={buildingId} reloadKey={liveKey} /> : serviceTab },
+      // villa mode: open service requests here, only with a valid maintenance (AMC) contract (Restaurants & Villas)
+      children: villaId && buildingId ? <VillaServiceTab villaId={villaId} buildingId={buildingId} reloadKey={liveKey} onChanged={() => setLiveKey(k => k + 1)} onGoTo={setActiveTab} />
+        : buildingId ? <BuildingServiceRequestsTab buildingId={buildingId} reloadKey={liveKey} /> : serviceTab },
     { key: 'docs', label: <span><FileTextOutlined /> الوثائق ({buildingId ? docCount ?? '…' : building.documents.length})</span>,
       children: buildingId ? <BuildingDocsLive buildingId={buildingId} branchId={(live as any)?.branchId} canManage={can('documents.manage')} onCount={setDocCount} /> : docsTab },
     { key: 'civildefense', label: <span><AuditOutlined style={{ color: '#1677ff' }} /> الدفاع المدني (CoC)</span>,
@@ -2920,9 +2942,14 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
     service: buildingId ? opsCounts?.service ?? 0 : building.serviceRequests.length,
     owners: live ? live.owners.length : building.owners.length, docs: buildingId ? docCount ?? 0 : building.documents.length,
   };
-  const groups = [
+  const groups = villaId ? [
+    { key: 'g-overview', label: 'الفيلا', icon: <HomeOutlined />, tabs: ['villa'] },
+    { key: 'g-finance', label: 'العقود والمالية', icon: <FileTextOutlined />, tabs: ['contracts', 'financials'] },
+    { key: 'g-ops', label: 'الخزان والخدمات', icon: <ToolOutlined />, tabs: ['tanks', 'refill', 'visits', 'service', 'civildefense'] },
+    { key: 'g-building', label: 'البيانات والوثائق', icon: <BankOutlined />, tabs: ['info', 'owners', 'docs', 'activity'] },
+  ] : [
     { key: 'g-overview', label: 'نظرة عامة', icon: <BarChartOutlined />, tabs: ['overview'] },
-    { key: 'g-units', label: 'الوحدات والسكان', icon: <ApartmentOutlined />, tabs: ['units', 'meters', 'tenants'] },
+    { key: 'g-units', label: 'الوحدات والسكان', icon: <ApartmentOutlined />, tabs: ['units', 'meters', 'tenants', ...(buildingId ? ['restaurants'] : [])] },
     { key: 'g-finance', label: 'العقود والمالية', icon: <FileTextOutlined />, tabs: ['contracts', 'financials'] },
     { key: 'g-ops', label: 'التشغيل والصيانة', icon: <ToolOutlined />, tabs: ['tanks', 'refill', 'visits', 'service', 'civildefense'] },
     { key: 'g-building', label: 'المبنى والوثائق', icon: <BankOutlined />, tabs: ['info', 'owners', 'docs', 'activity'] },

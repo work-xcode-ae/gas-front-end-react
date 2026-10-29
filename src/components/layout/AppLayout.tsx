@@ -6,7 +6,7 @@ import {
   DollarOutlined, WarningOutlined, CustomerServiceOutlined, ThunderboltOutlined,
   BarChartOutlined, UserOutlined, SettingOutlined, BellOutlined,
   GlobalOutlined, PlusOutlined, CalendarOutlined, RightOutlined
-, CalculatorOutlined } from '@ant-design/icons';
+, CalculatorOutlined, ShopOutlined } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../auth/AuthContext';
@@ -104,6 +104,8 @@ const AppLayoutInner: React.FC<AppLayoutProps> = ({ children }) => {
   const menuItems = [
     { key: '/', icon: <HomeOutlined />, label: t('nav.home') },
     { key: '/buildings', icon: <BankOutlined />, label: t('nav.buildings') },
+    { key: '/villas', icon: <HomeOutlined />, label: i18n.language === 'ar' ? 'الفلل' : 'Villas' },
+    { key: '/restaurants', icon: <ShopOutlined />, label: i18n.language === 'ar' ? 'المطاعم' : 'Restaurants' },
     { key: '/apartments', icon: <AppstoreOutlined />, label: t('nav.apartments') },
     { key: '/customers', icon: <TeamOutlined />, label: t('nav.customers') },
     { key: '/gas-contracts', icon: <FileTextOutlined />, label: t('nav.gasContracts') },
