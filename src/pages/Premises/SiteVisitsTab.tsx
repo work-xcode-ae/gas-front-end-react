@@ -188,13 +188,14 @@ export default function SiteVisitsTab({ premisesId, buildingId, reloadKey, kind 
     setLoading(true);
     try {
       const [r, o] = await Promise.all([
-        api<Paged<any>>('/maintenance-visits', { query: { buildingId, pageSize: 0 } }),
+        // restaurant → visits of its own AMC; villa → visits of its building
+        api<Paged<any>>('/maintenance-visits', { query: kind === 'restaurant' ? { premisesId, pageSize: 0 } : { buildingId, pageSize: 0 } }),
         api<Outcome[]>(`/premises/${premisesId}/visits/outcomes`).catch(() => [] as Outcome[]),
       ]);
       setRows([...r.items].sort((a, b) => String(a.scheduledDate).localeCompare(String(b.scheduledDate))));
       setOutcomes(Object.fromEntries(o.map(x => [x.id, x])));
     } catch (e) { message.error(errorMessage(e)); } finally { setLoading(false); }
-  }, [buildingId, premisesId]);
+  }, [buildingId, premisesId, kind]);
   useEffect(() => { load(); }, [load, reloadKey, k]);
 
   const isOpen = (v: any) => v.status === 'scheduled' || v.status === 'in_progress';
@@ -208,7 +209,7 @@ export default function SiteVisitsTab({ premisesId, buildingId, reloadKey, kind 
 
   return (
     <div>
-      {kind === 'restaurant' && <Alert type="info" showIcon style={{ marginBottom: 10 }} message="زيارات عقد صيانة المبنى الذي يقع فيه المطعم." />}
+      {kind === 'restaurant' && <Alert type="info" showIcon style={{ marginBottom: 10 }} message="زيارات عقد الصيانة الخاص بهذا المطعم (لا تشمل زيارات عقد صيانة المبنى)." />}
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
         {tiles.map(s => (
           <Card key={s.label} size="small" variant="borderless" style={{ borderRadius: 10, background: s.bg, minWidth: 110, textAlign: 'center', flex: '1 1 100px' }}>

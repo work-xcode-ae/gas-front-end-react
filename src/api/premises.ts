@@ -56,6 +56,8 @@ export interface ContractInput {
   startDate: string; endDate?: string | null; durationMonths?: number | null; pricePerLitre: number; taxRateId?: number | null;
   paymentTermsDays?: number | null; signatoryId?: number | null; signatoryIndex?: number | null; signedByName?: string | null;
   signedDate?: string | null; autoRenew: boolean; renewalPeriodMonths?: number | null; notes?: string | null;
+  /** terms & conditions; null on update = keep the current ones */
+  termItems?: { templateId: number | null; category: string; text: string }[] | null;
 }
 
 export interface OwnerRef { partyId?: number | null; party?: NewPartyInput | null }

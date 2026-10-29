@@ -157,7 +157,9 @@ const MaintenanceContractsPage: React.FC = () => {
           onRow={c => ({ onClick: () => setSelId(c.id), style: { cursor: 'pointer' } })}
           columns={[
             { title: 'رقم العقد', dataIndex: 'contractNo', render: v => <Text strong style={{ fontFamily: 'monospace', color: PRIMARY }}>{v}</Text> },
-            { title: 'المبنى', key: 'b', render: (_, c) => <div>{c.building}<div style={{ fontSize: 11, color: '#888' }}>{c.buildingCode}</div></div> },
+            { title: 'المبنى / الموقع', key: 'b', render: (_, c) => c.siteId
+              ? <div>{c.site}<div style={{ fontSize: 11, color: '#888' }}><Tag color={c.siteType === 'villa' ? 'green' : 'volcano'} style={{ fontSize: 10 }}>{c.siteType === 'villa' ? 'فيلا' : 'مطعم'}</Tag>{c.siteCode}{c.siteType === 'restaurant' ? ` · في ${c.building}` : ''}</div></div>
+              : <div>{c.building}<div style={{ fontSize: 11, color: '#888' }}>{c.buildingCode}</div></div> },
             { title: 'العميل (المالك)', dataIndex: 'ownerName', render: v => v ?? '—' },
             { title: 'الفترة', key: 'p', render: (_, c) => {
               const d = daysLeft(c);

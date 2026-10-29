@@ -4,8 +4,9 @@ import { PlusOutlined, ShopOutlined } from '@ant-design/icons';
 import { errorMessage } from '../../api/client';
 import { premisesApi, type PremisesListItem } from '../../api/premises';
 import { useAuth } from '../../auth/AuthContext';
-import { PremisesFormModal, PRIMARY, money, litres } from './forms';
+import { PRIMARY, money, litres } from './forms';
 import { useNavigate } from 'react-router-dom';
+import PremisesWizard from './PremisesWizard';
 
 const { Text } = Typography;
 
@@ -55,7 +56,7 @@ export default function BuildingRestaurantsTab({ buildingId, isVilla, onCount }:
           { title: 'جاهزة للفوترة', dataIndex: 'readyToInvoice', render: v => v > 0 ? <Tag color="orange">{v}</Tag> : '—' },
           { title: 'المفوتر', dataIndex: 'invoicedTotal', render: v => money(v) },
         ]} />
-      <PremisesFormModal type="restaurant" buildingId={buildingId} open={formOpen} onClose={() => setFormOpen(false)}
+      <PremisesWizard type="restaurant" buildingId={buildingId} open={formOpen} onClose={() => setFormOpen(false)} onListChanged={() => setKey(k => k + 1)}
         onSaved={id => { setFormOpen(false); setKey(k => k + 1); openRestaurant(id); }} />
     </div>
   );

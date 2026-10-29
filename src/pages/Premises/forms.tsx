@@ -7,6 +7,8 @@ import { api, errorMessage, type Paged } from '../../api/client';
 import { useReference, locName } from '../../api/reference';
 import { premisesApi, type ContractInput, type PremisesType, type SignatoryInput } from '../../api/premises';
 import { useTaxOptions } from '../Invoices/shared';
+import ContractTermsPicker from '../../components/ContractTermsPicker';
+import { toTermInputs, type ContractTermItem } from '../../api/terms';
 
 const { Text } = Typography;
 export const PRIMARY = '#1a5c2a';
@@ -14,8 +16,8 @@ export const GOLD = '#c9a84c';
 export const money = (n?: number | null) => `${Number(n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} د.إ`;
 export const litres = (n?: number | null) => `${Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 3 })} لتر`;
 export const d10 = (v?: string | null) => (v ? String(v).slice(0, 10) : '—');
-const iso = (d?: dayjs.Dayjs | null) => (d ? d.format('YYYY-MM-DD') : null);
-const blank = (s?: string | null) => (s && s.trim() ? s.trim() : null);
+export const iso = (d?: dayjs.Dayjs | null) => (d ? d.format('YYYY-MM-DD') : null);
+export const blank = (s?: string | null) => (s && s.trim() ? s.trim() : null);
 
 // ─────────────────────────── owner (existing party or a new one) ───────────────────────────
 
@@ -62,7 +64,7 @@ export function OwnerFields({ title, company }: { title: string; company?: boole
   );
 }
 
-const ownerRef = (v: any) => (v.ownerMode === 'existing'
+export const ownerRef = (v: any) => (v.ownerMode === 'existing'
   ? { partyId: v.ownerPartyId }
   : { party: { ...v.owner, nameAr: blank(v.owner?.nameAr), nameEn: blank(v.owner?.nameEn), phone: blank(v.owner?.phone), email: blank(v.owner?.email),
                emiratesId: blank(v.owner?.emiratesId), tradeLicenseNo: blank(v.owner?.tradeLicenseNo), taxNumber: blank(v.owner?.taxNumber) } });
@@ -97,7 +99,7 @@ export function TankListFields() {
   );
 }
 
-const tanksOf = (v: any) => (v.tanks ?? []).filter(Boolean).map((t: any) => ({
+export const tanksOf = (v: any) => (v.tanks ?? []).filter(Boolean).map((t: any) => ({
   tankNo: blank(t.tankNo) ?? undefined, gasType: t.gasType ?? 'LPG', capacityLitres: Number(t.capacityLitres),
   currentLevelLitres: t.currentLevelLitres ?? undefined, serialNo: blank(t.serialNo) ?? undefined,
 }));
@@ -129,7 +131,7 @@ export function SignatoryListFields() {
   );
 }
 
-const signatoryOf = (s: any): SignatoryInput => ({
+export const signatoryOf = (s: any): SignatoryInput => ({
   nameAr: blank(s.nameAr), nameEn: blank(s.nameEn), position: blank(s.position), emiratesId: blank(s.emiratesId), phone: blank(s.phone),
   email: blank(s.email), canSignContracts: !!s.canSignContracts, notes: blank(s.notes), isActive: s.isActive ?? true,
 });
@@ -170,17 +172,32 @@ export function ContractFields({ prefix, signers, signerHint }: { prefix: (strin
         )}
         <Col xs={24}><Form.Item name={p('notes')} label="ملاحظات"><Input.TextArea rows={2} /></Form.Item></Col>
       </Row>
+      {/* terms & conditions — the Settings «supply» terms, same as the building gas contract; editable for this contract only */}
+      <Divider titlePlacement="start"><FileProtectOutlined /> الشروط والأحكام</Divider>
+      <Form.Item name={p('termItems')} style={{ marginBottom: 12 }}>
+        <TermsField />
+      </Form.Item>
       {price > 0 && <Alert type="info" showIcon style={{ marginBottom: 8 }}
         message={`تُصدر فاتورة كل تعبئة بعد التوصيل: اللترات المورّدة × ${Number(price).toLocaleString()} د.إ + الضريبة (زر «إصدار فاتورة» في التعبئات الجاهزة).`} />}
     </>
   );
 }
 
+/** Form.Item adapter: ContractTermsPicker as a form field (value undefined → the Settings defaults are pre-selected). */
+function TermsField({ value, onChange }: { value?: ContractTermItem[]; onChange?: (v: ContractTermItem[]) => void }) {
+  return <ContractTermsPicker contractType="supply" value={value} onChange={v => onChange?.(v)} />;
+}
+
+/** GET contract terms → picker items (edit). */
+export const termItemsOf = (terms?: any[] | null): ContractTermItem[] =>
+  (terms ?? []).map((t: any) => ({ key: `e${t.id}`, templateId: t.templateId ?? null, category: t.category ?? 'general', text: t.text ?? '' }));
+
 export const contractOf = (c: any, signatory?: { id?: number | null; index?: number | null }): ContractInput => ({
   startDate: iso(c.startDate)!, endDate: iso(c.endDate), durationMonths: c.endDate ? null : (c.durationMonths ?? 12),
   pricePerLitre: Number(c.pricePerLitre), taxRateId: c.taxRateId ?? null, paymentTermsDays: c.paymentTermsDays ?? null,
   signatoryId: signatory?.id ?? null, signatoryIndex: signatory?.index ?? null, signedByName: blank(c.signedByName), signedDate: iso(c.signedDate),
   autoRenew: !!c.autoRenew, renewalPeriodMonths: c.autoRenew ? c.renewalPeriodMonths ?? 12 : null, notes: blank(c.notes),
+  termItems: c.termItems ? toTermInputs(c.termItems) : null,
 });
 
 // ─────────────────────────── create / edit a villa or a restaurant ───────────────────────────
@@ -344,7 +361,7 @@ export function ContractModal({ site, contract, open, onClose, onSaved }: { site
       startDate: dayjs(contract.startDate), endDate: contract.endDate ? dayjs(contract.endDate) : undefined, durationMonths: undefined,
       pricePerLitre: contract.pricePerLitre, taxRateId: contract.taxRateId ?? undefined, paymentTermsDays: contract.paymentTermsDays ?? undefined,
       signedDate: contract.signedDate ? dayjs(contract.signedDate) : undefined, autoRenew: contract.autoRenew, renewalPeriodMonths: contract.renewalPeriodMonths ?? undefined,
-      signatory: contract.signatoryId ?? undefined, signedByName: contract.signedByName, notes: contract.notes } });
+      signatory: contract.signatoryId ?? undefined, signedByName: contract.signedByName, notes: contract.notes, termItems: termItemsOf(contract.terms) } });
   }, [open, contract]); // eslint-disable-line react-hooks/exhaustive-deps
   const signers = isRestaurant
     ? (site?.signatories ?? []).filter((s: any) => s.isActive && s.canSignContracts).map((s: any) => ({ value: s.id, label: `${s.name}${s.position ? ` — ${s.position}` : ''}` }))

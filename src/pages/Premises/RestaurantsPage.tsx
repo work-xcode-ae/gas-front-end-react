@@ -12,8 +12,9 @@ import { useReference, locName } from '../../api/reference';
 import { useAuth } from '../../auth/AuthContext';
 import { premisesApi, type PremisesKpis, type PremisesListItem, type PremisesRefillRow } from '../../api/premises';
 import BuildingProfile from '../Buildings/BuildingProfile';
-import { PremisesFormModal, InvoiceRefillModal, PRIMARY, money, litres, d10 } from './forms';
+import { InvoiceRefillModal, PRIMARY, money, litres, d10 } from './forms';
 import RestaurantProfile from './RestaurantProfile';
+import PremisesWizard from './PremisesWizard';
 
 const { Title, Text } = Typography;
 const PRIMARY_LIGHT = '#e8f5e9';
@@ -248,7 +249,7 @@ export default function RestaurantsPage() {
         )}
       </Card>
 
-      <PremisesFormModal type="restaurant" open={formOpen} onClose={() => setFormOpen(false)}
+      <PremisesWizard type="restaurant" open={formOpen} onClose={() => setFormOpen(false)} onListChanged={reload}
         onSaved={id => { setFormOpen(false); reload(); openRestaurant(id, 'site'); }} />
       <InvoiceRefillModal row={invoiceRow} open={!!invoiceRow} onClose={() => setInvoiceRow(null)} onDone={() => { setInvoiceRow(null); reload(); }} />
     </div>

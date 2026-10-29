@@ -1,6 +1,6 @@
 import dayjs from 'dayjs';
 import { api, API_BASE, authFetch } from '../api/client';
-import { amcContractHtml, invoiceHtml, supplyContractHtml, type AmcPrintData, type InvoicePrintData, type PrintAssets, type SupplyContractPrintData } from './printLayouts';
+import { amcContractHtml, deliveryContractHtml, invoiceHtml, supplyContractHtml, type AmcPrintData, type DeliveryContractPrintData, type InvoicePrintData, type PrintAssets, type SupplyContractPrintData } from './printLayouts';
 
 /**
  * Printable customer documents (tax invoice, payment receipt).
@@ -228,6 +228,17 @@ export async function printAmcContract(w: Window | null, contractId: number) {
   try {
     const data = await api<AmcPrintData>(`/print/amc-contract/${contractId}`);
     writeDoc(w, amcContractHtml(data, await printAssets(data.company)));
+  } catch (e: any) {
+    failed(w, e?.message ?? String(e));
+  }
+}
+
+/** Gas supply contract of a villa / restaurant (price per litre, tanks, terms, signatures). */
+export async function printDeliveryContract(w: Window | null, contractId: number) {
+  if (!w) return;
+  try {
+    const data = await api<DeliveryContractPrintData>(`/print/delivery-contract/${contractId}`);
+    writeDoc(w, deliveryContractHtml(data, await printAssets(data.company)));
   } catch (e: any) {
     failed(w, e?.message ?? String(e));
   }

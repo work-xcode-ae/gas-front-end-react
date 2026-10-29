@@ -97,7 +97,7 @@ export default function VillaServiceTab({ villaId, buildingId, reloadKey, onChan
             <Col flex="auto">
               <Space wrap>
                 <SafetyCertificateOutlined style={{ color: '#52c41a', fontSize: 20 }} />
-                <Text strong>{isRest ? 'عقد صيانة المبنى ساري:' : 'عقد صيانة ساري:'}</Text><Tag color="green" style={{ fontFamily: 'monospace' }}>{c.contractNo}</Tag>
+                <Text strong>{isRest ? 'عقد صيانة المطعم ساري:' : 'عقد صيانة ساري:'}</Text><Tag color="green" style={{ fontFamily: 'monospace' }}>{c.contractNo}</Tag>
                 <Text type="secondary">{c.startDate} → {c.endDate ?? 'مفتوح'}</Text>
                 {c.daysLeft != null && <Tag color={c.daysLeft <= 30 ? 'orange' : 'default'}>متبقي {c.daysLeft} يوم</Tag>}
                 {c.provider && <Text type="secondary">· المزوّد: {c.provider}</Text>}
@@ -109,12 +109,12 @@ export default function VillaServiceTab({ villaId, buildingId, reloadKey, onChan
           </Row>
         ) : (
           <Alert type="warning" showIcon icon={<WarningOutlined />} style={{ borderRadius: 8 }}
-            message={`لا يمكن فتح طلب خدمة: لا يوجد عقد صيانة ساري ${isRest ? 'للمبنى الذي يقع فيه المطعم' : siteWord}`}
+            message={`لا يمكن فتح طلب خدمة: لا يوجد عقد صيانة ساري ${siteWord}`}
             description={cov.reason}
             action={<Space orientation="vertical">
               {addBtn}
               {(onOpenContracts || onGoTo) && <Button size="small" icon={<FileProtectOutlined />} onClick={() => onOpenContracts ? onOpenContracts() : onGoTo?.('contracts')}>
-                {isRest ? 'عقود الصيانة (المبنى)' : 'عقود الصيانة'}</Button>}
+                عقود الصيانة</Button>}
             </Space>} />
         )}
       </Card>

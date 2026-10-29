@@ -649,3 +649,145 @@ export function amcContractHtml(d: AmcPrintData, a: PrintAssets) {
     <div class="ar"><div class="g" style="text-decoration:underline">الطرف الثاني</div><div class="g">${esc(coAr)}</div></div></div>`;
   return documentHtml(`AMC ${c.contractNo}`, AMC_CSS, body);
 }
+
+// ═════════════════════════════════════ VILLA / RESTAURANT GAS CONTRACT (price per litre) ═════════════════════════════════════
+
+export interface DeliveryContractPrintData {
+  contract: { id: number; contractNo: string; startDate: string; endDate?: string | null; autoRenew?: boolean; renewalMonths?: number | null; status?: string;
+    pricePerLitre: number; taxCode?: string | null; taxRate?: number | null; paymentTermsDays?: number | null; signedByName?: string | null; signedDate?: string | null;
+    notes?: string | null; createdAt?: string };
+  customer: { code?: string; nameEn?: string | null; nameAr?: string | null; phone?: string | null; email?: string | null; poBox?: string | null; emiratesId?: string | null;
+    tradeLicenseNo?: string | null; trn?: string | null; cityEn?: string | null; cityAr?: string | null; contacts?: { type?: string | null; value: string }[] };
+  site: { type: 'villa' | 'restaurant' | string; code: string; nameEn?: string | null; nameAr?: string | null; buildingCode?: string | null; buildingEn?: string | null;
+    buildingAr?: string | null; street?: string | null; zone?: string | null; address?: string | null; cityEn?: string | null; cityAr?: string | null; unitNo?: string | null;
+    community?: string | null; plotNo?: string | null; villaNo?: string | null; makaniNo?: string | null; tradeName?: string | null; tradeLicenseNo?: string | null;
+    tradeLicenseExpiry?: string | null };
+  signatory?: { nameEn?: string | null; nameAr?: string | null; position?: string | null; emiratesId?: string | null } | null;
+  tanks: { tankNo: string; capacityLitres: number; gas?: string | null }[];
+  terms: TermRow[];
+  company?: Company | null;
+}
+
+/** Gas supply contract of a villa / restaurant — same form style as the unit contract, billed per delivered refill (price per litre). */
+export function deliveryContractHtml(d: DeliveryContractPrintData, a: PrintAssets, now = new Date()) {
+  const co = d.company ?? {};
+  const c = d.contract;
+  const t = d.customer;
+  const s = d.site;
+  const isRest = s.type === 'restaurant';
+  const name = upper(t.nameEn || t.nameAr);
+  const cname = upper(co.nameEn || co.nameAr);
+  const phones = [t.phone, ...(t.contacts ?? []).filter(x => x.type !== 'email').map(x => x.value)].filter((v, i, arr) => v && arr.indexOf(v) === i) as string[];
+  const siteEn = s.nameEn || s.nameAr || '';
+  const siteAr = s.nameAr || s.nameEn || '';
+  const loc = [s.community, s.zone, s.street, s.cityEn].filter(Boolean).join(', ');
+  const capacity = d.tanks.reduce((n, x) => n + Number(x.capacityLitres ?? 0), 0);
+  const values: TermValues = {
+    gas_price: plain(c.pricePerLitre), customer_name: { en: t.nameEn || t.nameAr, ar: t.nameAr || t.nameEn }, contract_no: c.contractNo,
+    start_date: { en: dmy(c.startDate), ar: ymdSlash(c.startDate) }, end_date: { en: dmy(c.endDate), ar: ymdSlash(c.endDate) },
+    building: { en: siteEn, ar: siteAr }, flat_no: isRest ? (s.unitNo ?? '') : (s.villaNo ?? ''), company_name: { en: co.nameEn, ar: co.nameAr },
+  };
+  const gen = `"Generated from Sedra ERP, on : ${stamp(now)}"`;
+  const row = (k: string, v: string, ak: string) => `<tr><td class="k">${k}</td><td class="c">:</td><td class="cv" colspan="3">${v}</td><td class="c">:</td><td class="ak ar">${ak}</td></tr>`;
+  const signerEn = isRest ? (d.signatory?.nameEn || d.signatory?.nameAr || c.signedByName || '') : (c.signedByName || t.nameEn || t.nameAr || '');
+  const signerAr = isRest ? (d.signatory?.nameAr || d.signatory?.nameEn || c.signedByName || '') : (c.signedByName || t.nameAr || t.nameEn || '');
+  const vat = c.taxRate != null ? `${Number(c.taxRate)}%` : '5%';
+  const terms = d.terms ?? [];
+
+  const page1 = `
+<div class="page" id="p1">
+ <div class="outer">
+  <table class="head"><tr>
+   <td class="logo" style="width:30mm"><img src="${a.logo}" alt=""></td>
+   <td class="title"><div class="a">عقد تزويد الغاز — ${isRest ? 'مطعم' : 'فيلا'}</div><div class="e">Gas Supply Contract — ${isRest ? 'Restaurant' : 'Villa'}</div></td>
+   <td style="width:30mm"></td></tr></table>
+  <table class="cno"><colgroup><col style="width:62mm"><col style="width:62mm"><col></colgroup><tr>
+   <td style="text-align:right;padding-right:12mm">Contract No:</td><td><div class="v">${esc(c.contractNo)}</div></td><td class="ar" style="text-align:left;padding-left:22mm">رقم العقد :</td></tr></table>
+ </div>
+ <table class="sys"><colgroup><col style="width:17mm"><col style="width:36mm"><col style="width:18mm"><col style="width:28mm"><col style="width:25mm"><col><col style="width:22mm"></colgroup><tr>
+  <td>System No</td><td>${c.id}</td><td>Date&nbsp; :</td><td style="text-align:center">${dmy(c.signedDate || c.startDate)}</td><td class="ar" style="text-align:center">التاريخ</td><td style="text-align:right">${c.id}</td><td class="ar" style="text-align:right">رقم النظام</td></tr></table>
+
+ <div class="party"><span>First Party: "The Gas Provider"</span><span class="ar">"الطرف الأول "مورد الغاز</span></div>
+ <table class="blk"><colgroup><col class="k"><col class="c"><col><col><col><col class="c"><col class="ak"></colgroup>
+  <tr><td colspan="5" style="font-weight:bold;font-family:Cambria,Georgia,serif">M/S&nbsp; ${esc(cname)}</td><td></td><td class="ak ar" style="font-weight:bold">السادة</td></tr>
+  ${row('P.O.Box', esc(co.poBox ?? ''), 'صندوق البريد')}
+  ${row('Tel', esc(co.phone ?? ''), 'تليفون')}
+  ${row('E-Mail', esc(co.email ?? ''), 'بريد الكتروني')}
+  ${co.trn ? row('TRN', esc(co.trn), 'الرقم الضريبي') : ''}
+ </table>
+
+ <div class="party partyb"><span>Second Party: " The Customer" (${isRest ? 'Restaurant owner' : 'Villa owner'})</span><span class="ar">"الطرف الثاني " الزبون (${isRest ? 'مالك المطعم' : 'مالك الفيلا'})</span></div>
+ <table class="blk blk2"><colgroup><col class="k"><col class="c"><col><col><col><col class="c"><col class="ak"></colgroup>
+  ${row(isRest ? 'M/S' : 'Mr./Mrs.', esc(name), isRest ? 'السادة' : 'السيد / السيده')}
+  ${t.emiratesId ? row('Emirates ID', esc(t.emiratesId), 'رقم الهوية') : ''}
+  ${t.tradeLicenseNo ? row('Trade Licence', esc(t.tradeLicenseNo), 'الرخصة التجارية') : ''}
+  ${t.trn ? row('TRN', esc(t.trn), 'الرقم الضريبي') : ''}
+  ${row(isRest ? 'Restaurant' : 'Villa', `${esc(upper(siteEn))} (${esc(s.code)})`, isRest ? 'المطعم' : 'الفيلا')}
+  ${isRest
+    ? `${s.tradeName ? row('Trade Name', esc(s.tradeName), 'الاسم التجاري') : ''}
+       ${row('Building', esc(upper([s.buildingCode, s.buildingEn || s.buildingAr].filter(Boolean).join(' — '))), 'المبنى')}
+       ${s.unitNo ? row('Shop / Unit', esc(s.unitNo), 'المحل / الوحدة') : ''}`
+    : `${row('Villa No. / Plot', esc([s.villaNo, s.plotNo].filter(Boolean).join(' / ')), 'رقم الفيلا / القطعة')}
+       ${s.makaniNo ? row('Makani No.', esc(s.makaniNo), 'رقم مكاني') : ''}`}
+  ${row('Location', esc(loc), 'الموقع')}
+  <tr><td class="k">Mobile 1</td><td class="c">:</td><td style="text-align:center">${esc(phones[0] ?? '')}</td><td><span class="ar">جوال1</span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Mobile 2&nbsp;&nbsp;:</td><td style="text-align:center">${esc(phones[1] ?? '')}</td><td class="c">:</td><td class="ak ar">جوال2</td></tr>
+  ${row('P.O.Box / Emirate', esc([t.poBox, t.cityEn].filter(Boolean).join(' / ')), 'صندوق البريد')}
+  ${row('E-Mail', esc(t.email ?? ''), 'البريد الالكتروني')}
+  ${isRest && d.signatory ? row('Signed by', esc([d.signatory.nameEn || d.signatory.nameAr, d.signatory.position].filter(Boolean).join(' — ')), 'الموقّع عن المطعم') : ''}
+ </table>
+
+ <div class="agree"><span>The two parties have agreed on the following:</span><span class="ar" style="font-size:7.4pt">اتفق الطرفان على ما يلي</span></div>
+ <div class="cl"><div class="n">1</div><div>The first party supplies the second party with LPG by tanker into the ${isRest ? 'restaurant' : 'villa'} tank(s) listed below, upon request.</div>
+   <div class="ar">يقوم الطرف الأول بتزويد الطرف الثاني بالغاز بواسطة صهريج إلى خزان/خزانات ${isRest ? 'المطعم' : 'الفيلا'} المبينة أدناه عند الطلب.</div><div class="n">1</div></div>
+ <div class="cl"><div class="n">2</div><div>Each delivered refill is invoiced after delivery: delivered litres × price per litre + VAT.</div>
+   <div class="ar">تُصدر فاتورة لكل تعبئة بعد التوصيل: اللترات المورّدة × سعر اللتر + ضريبة القيمة المضافة.</div><div class="n">2</div></div>
+
+ <table class="fees"><colgroup><col style="width:58mm"><col><col style="width:62mm"></colgroup>
+  <tr><td>Price per Litre (excl. VAT)</td><td class="c"><b>${num(c.pricePerLitre, 4)} AED</b></td><td class="a ar">سعر اللتر (قبل الضريبة)</td></tr>
+  <tr><td>VAT</td><td class="c">${esc(vat)}${c.taxCode ? ` (${esc(c.taxCode)})` : ''}</td><td class="a ar">ضريبة القيمة المضافة</td></tr>
+  <tr><td>Payment Terms</td><td class="c">${c.paymentTermsDays != null ? `${c.paymentTermsDays} days / يوم` : 'As per company policy'}</td><td class="a ar">مدة السداد</td></tr>
+  <tr><td>Contract Period</td><td class="c">${dmy(c.startDate)} → ${dmy(c.endDate)}${c.autoRenew ? ` (auto-renew ${c.renewalMonths ?? 12} m)` : ''}</td><td class="a ar">مدة العقد</td></tr>
+ </table>
+
+ <div class="fwd"><span>Tank(s) covered by this contract:</span><span class="ar">الخزانات المشمولة بهذا العقد</span></div>
+ <table class="fees ifees"><colgroup><col style="width:58mm"><col><col style="width:62mm"></colgroup>
+  ${d.tanks.length ? d.tanks.map(x => `<tr><td class="small">Tank ${esc(x.tankNo)}</td><td class="c small">${esc(x.gas ?? 'LPG')} — ${num(x.capacityLitres, 0)} L</td><td class="a ar">خزان ${esc(x.tankNo)}</td></tr>`).join('')
+    : `<tr><td class="small">—</td><td class="c small">—</td><td class="a ar">—</td></tr>`}
+  <tr><td class="small"><b>Total capacity</b></td><td class="c"><b>${num(capacity, 0)} L</b></td><td class="a ar"><b>إجمالي السعة</b></td></tr>
+ </table>
+
+ <div class="conf" style="margin-top:3mm"><div>The Second Party confirms that he reads, understands and<br>abides by all terms &amp; conditions of this contract</div>
+  <div>يؤكد الطرف الثاني انه قد اطلع على الشروط و الاحكام الواردة في هذا العقد<br>و فهم مضمونها و ملزم بها .</div></div>
+ <div class="signs" style="margin-top:2mm"><div class="row" style="font-weight:bold">For First Party / <span class="ar">عن الطرف الاول</span></div><div class="row" style="font-weight:bold"><span class="ar">عن الطرف الثاني/</span> For second Party</div></div>
+ <div class="signs" style="margin-top:3mm"><div><div class="row" style="font-weight:bold">${esc(cname)}</div><div class="row">Name / <span class="ar">الاسم</span></div></div>
+   <div><div class="row" style="font-weight:bold">${esc(upper(signerEn))}</div><div class="row"><span class="ar">الاسم</span> / Name</div></div></div>
+ <div class="signs" style="margin-top:2mm"><div class="row"><b>Signature</b> / <span class="ar">التوقيع</span></div><div class="row"><b><span class="ar">التوقيع</span> / Signature</b></div></div>
+ <div class="call">Call Centre : ${esc(co.customerCarePhone || co.phone || '')}</div>
+</div>`;
+
+  const page2 = terms.length || c.notes ? `
+<div class="page break">
+ <div class="tt">Terms &amp; Conditions</div>
+ ${terms.map((x, i) => `<div class="term"><div class="n">${i + 1}</div><div class="en">${nl(fillTerm(x.en ?? '', values, 'en'))}</div>
+   <div class="ar">${nl(fillTerm(x.ar, values, 'ar'))}</div><div class="n">${i + 1}</div></div>`).join('')}
+ ${c.notes ? `<div class="term"><div class="n"></div><div class="en"><b>Remarks:</b> ${nl(c.notes)}</div><div class="ar"></div><div class="n"></div></div>` : ''}
+</div>` : '';
+
+  const page3 = `
+<div class="page break">
+ <table class="sg3">
+  <colgroup><col style="width:50%"><col style="width:50%"></colgroup>
+  <tr><td class="h">For First Party :</td><td class="h ar">للطرف الأول :</td></tr>
+  <tr><td>Name : <b>${esc(cname)}</b></td><td class="ar">الاسم : <b>${esc(co.nameAr || cname)}</b></td></tr>
+  <tr><td>Signature : <span class="dash"></span></td><td class="ar">الإمضاء : <span class="dash"></span></td></tr>
+  <tr><td>Date : <span class="dash" style="width:30mm"></span></td><td class="ar">التاريخ : <span class="dash" style="width:30mm"></span></td></tr>
+  <tr class="gap"><td colspan="2"></td></tr>
+  <tr><td class="h">For the Second Party${isRest ? ' (authorised signatory)' : ''} :</td><td class="h ar">للطرف الثاني${isRest ? ' (المخول بالتوقيع)' : ''} :</td></tr>
+  <tr><td>Name : <b>${esc(upper(signerEn))}</b>${isRest && d.signatory?.position ? ` — ${esc(d.signatory.position)}` : ''}</td><td class="ar">الاسم : <b>${esc(signerAr)}</b></td></tr>
+  <tr><td>Signature : <span class="dash"></span></td><td class="ar">الإمضاء : <span class="dash"></span></td></tr>
+  <tr><td>Date : <span class="dash" style="width:30mm"></span></td><td class="ar">التاريخ : <span class="dash" style="width:30mm"></span></td></tr>
+ </table>
+</div>`;
+  const fit = `<script>window.__fit=function(){var p=document.getElementById('p1');if(!p)return;p.style.zoom='';var max=Math.floor(276*96/25.4);var h=p.getBoundingClientRect().height;if(h>max){p.style.zoom=(Math.floor(max/h*1000)/1000).toString();}};window.__fit();</script>`;
+  return documentHtml(`Gas Supply Contract ${c.contractNo}`, CONTRACT_CSS.replace('var(--gen)', gen), page1 + fit + page2 + page3);
+}

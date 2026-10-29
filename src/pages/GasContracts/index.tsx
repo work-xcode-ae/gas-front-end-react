@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Row, Col, Card, Table, Input, Select, Button, Tag, Typography, Space, Modal, message, Empty } from 'antd';
+import { Row, Col, Card, Table, Input, Select, Button, Tag, Typography, Space, Modal, Segmented, message, Empty } from 'antd';
+import { useNavigate } from 'react-router-dom';
 import { FireOutlined, PlusOutlined, CheckCircleOutlined, ClockCircleOutlined, WarningOutlined, StopOutlined, ReloadOutlined, FileTextOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { api, errorMessage, type Paged } from '../../api/client';
@@ -33,10 +34,20 @@ export default function GasContractsPage() {
   const [vacant, setVacant] = useState<UnitDto[]>([]);
   const [newUnit, setNewUnit] = useState<number>();
   const [key, setKey] = useState(0);
+  /** all | units (building units) | villa | restaurant */
+  const [kind, setKind] = useState<string>('all');
+  const navigate = useNavigate();
 
   useEffect(() => {
     setLoading(true);
-    api<Paged<any>>('/supply-contracts', { query: { pageSize: 0 } }).then(r => setRows(r.items)).catch(e => message.error(errorMessage(e))).finally(() => setLoading(false));
+    // building-unit supply contracts + villa / restaurant delivery contracts (price per litre)
+    Promise.all([
+      api<Paged<any>>('/supply-contracts', { query: { pageSize: 0 } }).then(r => r.items.map((x: any) => ({ ...x, kind: 'units' }))),
+      api<Paged<any>>('/premises/contracts', { query: { pageSize: 0 } }).then(r => r.items.map((c: any) => ({
+        ...c, id: `p${c.id}`, contractId: c.id, kind: c.premisesType, tenant: c.customer, building: c.premises, monthlyFee: null,
+        balanceAmount: null, overdueAmount: 0, paymentStatus: null,
+      }))).catch(() => []),
+    ]).then(([a, b]) => setRows([...a, ...b])).catch(e => message.error(errorMessage(e))).finally(() => setLoading(false));
   }, [key]);
   useEffect(() => { api<Paged<any>>('/buildings', { query: { pageSize: 0, sort: 'code' } }).then(r => setBuildings(r.items)).catch(() => setBuildings([])); }, []);
   useEffect(() => {
@@ -48,13 +59,14 @@ export default function GasContractsPage() {
   const exp = (n: number) => active.filter(r => { const d = daysLeft(r.endDate); return d != null && d >= 0 && d <= n; });
   const overdue = rows.filter(r => Number(r.overdueAmount) > 0);
   const shown = useMemo(() => rows.filter(r => {
+    if (kind !== 'all' && r.kind !== kind) return false;
     if (buildingId && r.buildingId !== buildingId) return false;
     if (status && r.status !== status) return false;
     if (expiring) { const d = daysLeft(r.endDate); if (!r.isActive || d == null || d < 0 || d > expiring) return false; }
     if (overdueOnly && !(Number(r.overdueAmount) > 0)) return false;
-    if (search) { const s = search.toLowerCase(); if (![r.contractNo, r.tenant, r.unit, r.building, r.meter].some(x => String(x ?? '').toLowerCase().includes(s))) return false; }
+    if (search) { const s = search.toLowerCase(); if (![r.contractNo, r.tenant, r.unit, r.building, r.meter, r.premisesCode].some(x => String(x ?? '').toLowerCase().includes(s))) return false; }
     return true;
-  }), [rows, buildingId, status, expiring, overdueOnly, search]);
+  }), [rows, kind, buildingId, status, expiring, overdueOnly, search]);
 
   const refresh = () => setKey(k => k + 1);
   const openUnit = async (unitId: number, action?: 'tenant') => {
@@ -64,7 +76,7 @@ export default function GasContractsPage() {
 
   return (
     <div>
-      <PageBanner icon={<FireOutlined />} title="عقود توريد الغاز" subtitle="كل عقود التوريد في جميع المباني — التجديد والإنهاء والفوترة والاستهلاك"
+      <PageBanner icon={<FireOutlined />} title="عقود توريد الغاز" subtitle="كل عقود التوريد: وحدات المباني والفلل والمطاعم — التجديد والإنهاء والفوترة والاستهلاك"
         extra={<Space>
           <Button icon={<ReloadOutlined />} onClick={refresh} style={{ background: 'rgba(255,255,255,.15)', color: '#fff', borderColor: 'transparent' }} />
           {(can('contracts.manage') || can('buildings.manage')) && <Button icon={<PlusOutlined />} style={{ background: GOLD, borderColor: GOLD, color: '#0b2e18', fontWeight: 600 }}
@@ -82,6 +94,12 @@ export default function GasContractsPage() {
 
       <Card bordered={false} style={{ borderRadius: 12 }}>
         <Space wrap style={{ marginBottom: 12 }}>
+          <Segmented value={kind} onChange={v => setKind(String(v))} options={[
+            { value: 'all', label: `الكل (${rows.length})` },
+            { value: 'units', label: `وحدات المباني (${rows.filter(r => r.kind === 'units').length})` },
+            { value: 'villa', label: `الفلل (${rows.filter(r => r.kind === 'villa').length})` },
+            { value: 'restaurant', label: `المطاعم (${rows.filter(r => r.kind === 'restaurant').length})` },
+          ]} />
           <Input.Search allowClear placeholder="بحث: رقم العقد، العميل، الوحدة، العداد…" style={{ width: 300 }} onSearch={setSearch} onChange={e => !e.target.value && setSearch('')} />
           <Select allowClear showSearch optionFilterProp="label" placeholder="المبنى" style={{ width: 200 }} value={buildingId} onChange={setBuildingId}
             options={buildings.map(b => ({ value: b.id, label: `${b.code} — ${b.name ?? ''}` }))} />
@@ -94,20 +112,24 @@ export default function GasContractsPage() {
         <Table rowKey="id" size="middle" loading={loading} dataSource={shown} scroll={{ x: 1100 }}
           locale={{ emptyText: <Empty description="لا توجد عقود" /> }}
           pagination={{ pageSize: 20, showTotal: t => `${t} عقد` }}
-          onRow={r => ({ onClick: () => setOpenId(r.id), style: { cursor: 'pointer', background: Number(r.overdueAmount) > 0 ? '#fff8f8' : undefined } })}
+          onRow={r => ({ onClick: () => (r.kind === 'units' ? setOpenId(r.id) : navigate(`/${r.kind === 'villa' ? 'villas' : 'restaurants'}?id=${r.premisesId}`)), style: { cursor: 'pointer', background: Number(r.overdueAmount) > 0 ? '#fff8f8' : undefined } })}
           columns={[
             { title: 'رقم العقد', dataIndex: 'contractNo', render: v => <Text strong style={{ fontFamily: 'monospace', fontSize: 12, color: PRIMARY }}>{v}</Text> },
             { title: 'العميل', dataIndex: 'tenant' },
-            { title: 'المبنى / الوحدة', key: 'u', render: (_, r) => <div>{r.building}<div style={{ fontSize: 11, color: '#888' }}>وحدة {r.unit}{r.meter ? ` · ${r.meter}` : ''}</div></div> },
+            { title: 'المبنى / الوحدة', key: 'u', render: (_, r) => r.kind === 'units'
+              ? <div>{r.building}<div style={{ fontSize: 11, color: '#888' }}>وحدة {r.unit}{r.meter ? ` · ${r.meter}` : ''}</div></div>
+              : <div>{r.building}<div style={{ fontSize: 11, color: '#888' }}><Tag color={r.kind === 'villa' ? 'green' : 'volcano'} style={{ fontSize: 10 }}>{r.kind === 'villa' ? 'فيلا' : 'مطعم'}</Tag>{r.premisesCode}</div></div> },
             { title: 'الفترة', key: 'p', render: (_, r) => {
               const d = daysLeft(r.endDate);
               return <div style={{ fontSize: 12 }}>{d10(r.startDate)} → {d10(r.endDate)}
                 {r.isActive && d != null && d <= 60 && <div><Tag color={d < 0 ? 'error' : d <= 30 ? 'volcano' : 'orange'} style={{ fontSize: 10 }}>{d < 0 ? `انتهى منذ ${-d} يوم` : `ينتهي خلال ${d} يوم`}</Tag></div>}</div>;
             } },
-            { title: 'الرسوم الشهرية', dataIndex: 'monthlyFee', render: v => money(v) },
-            { title: 'الرصيد', dataIndex: 'balanceAmount', render: (v, r) => <div><Text strong style={{ color: Number(v) > 0 ? '#d4380d' : '#52c41a' }}>{money(v)}</Text>
+            { title: 'الرسوم / السعر', dataIndex: 'monthlyFee', render: (v, r) => r.kind === 'units' ? money(v)
+              : <span>{Number(r.pricePerLitre).toLocaleString()} د.إ / لتر<div style={{ fontSize: 11, color: '#888' }}>حسب التعبئة</div></span> },
+            { title: 'الرصيد', dataIndex: 'balanceAmount', render: (v, r) => r.kind !== 'units'
+              ? <span style={{ fontSize: 12 }}>مفوتر {money(r.invoicedTotal)}</span> : <div><Text strong style={{ color: Number(v) > 0 ? '#d4380d' : '#52c41a' }}>{money(v)}</Text>
               {Number(r.overdueAmount) > 0 && <div style={{ fontSize: 11, color: '#ff4d4f' }}>متأخر {money(r.overdueAmount)}</div>}</div> },
-            { title: 'السداد', dataIndex: 'paymentStatus', render: s => <Tag color={PAY_STATUS[s]?.color}>{PAY_STATUS[s]?.label ?? s}</Tag> },
+            { title: 'السداد', dataIndex: 'paymentStatus', render: s => s == null ? <Text type="secondary">—</Text> : <Tag color={PAY_STATUS[s]?.color}>{PAY_STATUS[s]?.label ?? s}</Tag> },
             { title: 'الحالة', dataIndex: 'status', render: s => <Tag color={CONTRACT_STATUS[s]?.color}>{CONTRACT_STATUS[s]?.label ?? s}</Tag> },
           ]} />
       </Card>

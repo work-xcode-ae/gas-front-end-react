@@ -17,7 +17,10 @@ import { HistoryButton, useTrackView } from '../../components/history/RecordHist
 import { RefillRequestDrawer, NewRefillRequestModal, mapLiveRefill, type RefillRequestItem } from '../Buildings/RefillRequestDrawer';
 import { PremisesFormModal, ContractModal, SignatoryModal, InvoiceRefillModal, PRIMARY, money, litres, d10 } from './forms';
 import SiteTanksYard, { type SiteTank } from './SiteTanksYard';
-import { openPrintWindow, printInvoice } from '../../utils/printDocs';
+import { PremisesAmcModal } from './premisesAmc';
+import SiteContractsTab from './SiteContractsTab';
+import { RecordPaymentModal } from '../Invoices/shared';
+import { openPrintWindow, printInvoice, printDeliveryContract } from '../../utils/printDocs';
 
 const { Title, Text } = Typography;
 const cardStyle = { borderRadius: 14, border: 'none', boxShadow: '0 1px 6px rgba(0,0,0,0.07)' } as const;
@@ -94,6 +97,9 @@ export default function RestaurantProfile({ restaurantId, initialTab, onBack, on
   const [docFiles, setDocFiles] = useState<UploadFile[]>([]);
   const [docSaving, setDocSaving] = useState(false);
   const [docForm] = Form.useForm();
+  const [amcs, setAmcs] = useState<any[]>([]);
+  const [amcOpen, setAmcOpen] = useState(false);
+  const [payFor, setPayFor] = useState<{ invoiceId?: number } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,6 +113,8 @@ export default function RestaurantProfile({ restaurantId, initialTab, onBack, on
       const inv = await Promise.all(contractIds.map(id => api<Paged<any>>('/invoices', { query: { contractId: id, pageSize: 0 } }).then(x => x.items).catch(() => [])));
       setInvoices(inv.flat().sort((a: any, b: any) => String(b.date ?? b.issueDate).localeCompare(String(a.date ?? a.issueDate))));
       setDocs(await api<any[]>('/documents', { query: { entityType: 'restaurant', entityId: restaurantId } }).catch(() => []));
+      // the restaurant's own service & maintenance contracts (not the host building's)
+      setAmcs(await api<Paged<any>>('/amc-contracts', { query: { premisesId: restaurantId, pageSize: 0 } }).then(x => x.items).catch(() => []));
     } catch (e) { message.error(errorMessage(e)); }
     finally { setLoading(false); }
   }, [restaurantId]);
@@ -240,13 +248,36 @@ export default function RestaurantProfile({ restaurantId, initialTab, onBack, on
         { title: 'المفوتر', render: (_, c) => <span>{money(c.invoicedTotal)}<div style={{ fontSize: 11, color: '#888' }}>{litres(c.invoicedLitres)}</div></span> },
         { title: 'الحالة', dataIndex: 'status', render: x => <Tag color={CONTRACT_STATUS[x]?.color}>{CONTRACT_STATUS[x]?.label ?? x}</Tag> },
         { title: '', render: (_, c) => canManage && c.status === 'active' ? <Space size={0}>
+          <Tooltip title="طباعة العقد"><Button type="text" size="small" icon={<PrinterOutlined />} onClick={() => printDeliveryContract(openPrintWindow(), c.id)} /></Tooltip>
           <Tooltip title="تعديل"><Button type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditContract(c); setContractOpen(true); }} /></Tooltip>
           <Tooltip title="إنهاء العقد"><Button type="text" size="small" danger icon={<StopOutlined />} onClick={() => terminate(c)} /></Tooltip>
-        </Space> : <HistoryButton entityType="DeliveryContract" id={c.id} label={null} type="text" /> },
+        </Space> : <Space size={0}><Tooltip title="طباعة العقد"><Button type="text" size="small" icon={<PrinterOutlined />} onClick={() => printDeliveryContract(openPrintWindow(), c.id)} /></Tooltip><HistoryButton entityType="DeliveryContract" id={c.id} label={null} type="text" /></Space> },
       ]} />
   );
   const newContractBtn = canManage && s.isActive && !active && <Button size="small" type="primary" style={{ background: PRIMARY }} icon={<PlusOutlined />}
     onClick={() => { if (!signers.length) { message.warning('أضف شخصاً مخولاً بالتوقيع من طاقم المطعم أولاً'); setActiveTab('signatories'); return; } setEditContract(null); setContractOpen(true); }}>عقد جديد</Button>;
+
+  const AMC_STATUS: Record<string, { color: string; label: string }> = { active: { color: 'green', label: 'ساري' }, pending: { color: 'orange', label: 'لم يبدأ' }, expired: { color: 'default', label: 'منتهي' }, cancelled: { color: 'red', label: 'ملغى' } };
+  const activeAmc = amcs.find(a => a.status === 'active' && dayjs(a.startDate).isBefore(dayjs().add(1, 'day'), 'day') && dayjs(a.endDate).isAfter(dayjs().subtract(1, 'day'), 'day'));
+  const amcTable = (
+    <Table<any> rowKey="id" size="small" dataSource={amcs} pagination={false}
+      locale={{ emptyText: <Empty description="لا يوجد عقد صيانة للمطعم — بدون عقد ساري لا يمكن فتح طلبات الخدمة" /> }}
+      columns={[
+        { title: 'العقد', dataIndex: 'contractNo', render: x => <Text code>{x}</Text> },
+        { title: 'الفترة', render: (_, a) => `${d10(a.startDate)} → ${d10(a.endDate)}` },
+        { title: 'القيمة السنوية', dataIndex: 'annualValue', render: x => <Text strong>{money(x)}</Text> },
+        { title: 'الزيارات', render: (_, a) => `${a.visitsDone ?? 0} / ${a.visitsTotal ?? 0}${a.nextVisit ? ` · القادمة ${d10(a.nextVisit)}` : ''}` },
+        { title: 'الاستجابة', dataIndex: 'responseTime', render: (x, a) => <span>{x ?? '—'}{a.emergencyIncluded && <Tag color="red" style={{ marginInlineStart: 4 }}>طوارئ</Tag>}</span> },
+        { title: 'الحالة', dataIndex: 'status', render: (x, a) => <Tag color={AMC_STATUS[x]?.color}>{a.statusLabel ?? AMC_STATUS[x]?.label ?? x}</Tag> },
+        { title: '', render: (_, a) => <HistoryButton entityType="AmcContract" id={a.id} label={null} type="text" /> },
+      ]} />
+  );
+  const newAmcBtn = canManage && s.isActive && !activeAmc && s.building && <Button size="small" type="primary" style={{ background: '#1d39c4' }} icon={<PlusOutlined />}
+    onClick={() => setAmcOpen(true)}>عقد صيانة جديد</Button>;
+  const amcCard = (
+    <Card style={cardStyle} title={<Space><ToolOutlined style={{ color: '#1d39c4' }} /><Text strong>عقد الخدمة والصيانة (AMC)</Text>{activeAmc ? <Tag color="green">ساري حتى {d10(activeAmc.endDate)}</Tag> : <Tag color="red">لا يوجد عقد ساري</Tag>}</Space>}
+      extra={newAmcBtn}>{amcTable}</Card>
+  );
 
   const refillsInvoicesTable = (
     <Table<any> rowKey="refillRequestId" size="small" dataSource={refills} pagination={{ pageSize: 8, size: 'small' }}
@@ -323,6 +354,7 @@ export default function RestaurantProfile({ restaurantId, initialTab, onBack, on
         </Col>
         <Col xs={24}>
           <Card style={cardStyle} title={<Space><FileProtectOutlined style={{ color: PRIMARY }} /><Text strong>عقد توريد الغاز (سعر اللتر)</Text></Space>} extra={newContractBtn}>{contractsTable}</Card>
+          <div style={{ marginTop: 16 }}>{amcCard}</div>
         </Col>
         <Col xs={24}>
           <Card style={cardStyle} title={<Space><FireOutlined style={{ color: '#fa8c16' }} /><Text strong>التعبئات والفواتير</Text>{ready.length > 0 && <Tag color="orange">{ready.length} جاهزة للفوترة</Tag>}</Space>}
@@ -351,7 +383,9 @@ export default function RestaurantProfile({ restaurantId, initialTab, onBack, on
       <Col xs={24} md={8}><MiniKpi title="المستحق" value={money(invoices.reduce((n, x) => n + Number(x.balance ?? x.outstanding ?? 0), 0))} color="#fa8c16" bg="#fff7e6" icon={<ClockCircleOutlined />} /></Col>
       <Col xs={24}>
         <Card style={cardStyle} title={<Text strong><FileTextOutlined /> فواتير المطعم</Text>}
-          extra={<Button size="small" onClick={() => navigate('/invoices')}>مركز الفواتير</Button>}>
+          extra={<Space size={6}>
+            {invoices.some((x: any) => Number(x.balance ?? 0) > 0) && <Button size="small" icon={<DollarOutlined />} style={{ borderColor: '#52c41a', color: '#389e0d' }} onClick={() => setPayFor({})}>تسجيل دفعة</Button>}
+            <Button size="small" onClick={() => navigate('/invoices')}>مركز الفواتير</Button></Space>}>
           <Table<any> rowKey="id" size="small" dataSource={invoices} pagination={{ pageSize: 10, size: 'small' }} locale={{ emptyText: <Empty description="لا توجد فواتير بعد" /> }}
             columns={[
               { title: 'الفاتورة', render: (_, x) => <Text code>{x.no ?? x.invoiceNo}</Text> },
@@ -362,7 +396,11 @@ export default function RestaurantProfile({ restaurantId, initialTab, onBack, on
               { title: 'الضريبة', dataIndex: 'vat', render: (x, row) => money(x ?? row.vatAmount) },
               { title: 'الإجمالي', render: (_, x) => <Text strong>{money(x.amount ?? x.total ?? x.totalAmount)}</Text> },
               { title: 'الحالة', dataIndex: 'status', render: x => <Tag color={INV_STATUS[x]?.color}>{INV_STATUS[x]?.label ?? x}</Tag> },
-              { title: '', key: 'print', width: 60, render: (_, x) => <Tooltip title="طباعة الفاتورة / PDF"><Button size="small" type="text" icon={<PrinterOutlined />} onClick={() => printInvoice(openPrintWindow(), x.id)} /></Tooltip> },
+              { title: 'المدفوع', dataIndex: 'paid', render: x => <Text style={{ color: '#389e0d' }}>{money(x)}</Text> },
+              { title: 'الرصيد', dataIndex: 'balance', render: x => <Text strong style={{ color: Number(x) > 0 ? '#d4380d' : '#52c41a' }}>{money(x)}</Text> },
+              { title: '', key: 'print', width: 150, render: (_, x) => <Space size={4}>
+                {Number(x.balance ?? 0) > 0 && x.status !== 'cancelled' && <Button size="small" icon={<DollarOutlined />} style={{ borderColor: '#52c41a', color: '#389e0d' }} onClick={() => setPayFor({ invoiceId: x.id })}>دفعة</Button>}
+                <Tooltip title="طباعة الفاتورة / PDF"><Button size="small" type="text" icon={<PrinterOutlined />} onClick={() => printInvoice(openPrintWindow(), x.id)} /></Tooltip></Space> },
             ]} />
         </Card>
       </Col>
@@ -464,7 +502,9 @@ export default function RestaurantProfile({ restaurantId, initialTab, onBack, on
 
   const tabs: Record<string, { label: React.ReactNode; children: React.ReactNode }> = {
     site: { label: <span><ShopOutlined /> المطعم والعقد</span>, children: siteTab },
-    contracts: { label: <span><FileProtectOutlined /> عقود التوريد ({s.contracts?.length ?? 0})</span>, children: <Card style={cardStyle} extra={newContractBtn} title={<Text strong>عقود التوريد</Text>}>{contractsTable}</Card> },
+    contracts: { label: <span><FileProtectOutlined /> العقود ({(s.contracts?.length ?? 0) + amcs.length})</span>,
+      // same look as the building / villa contracts tab (switcher cards, AMC cards, gas contracts)
+      children: <SiteContractsTab site={s} reloadKey={key} onChanged={changed} onNeedSignatory={() => setActiveTab('signatories')} /> },
     financials: { label: <span><DollarOutlined /> الفواتير والمالية ({invoices.length})</span>, children: financialsTab },
     tanks: { label: <span><DatabaseOutlined /> الخزانات ({tanks.length})</span>,
       children: <SiteTanksYard premisesId={s.id} siteName={s.name} tanks={tanks} openRequests={openReq} canManage={canManage} canRefill={canRefill}
@@ -474,7 +514,7 @@ export default function RestaurantProfile({ restaurantId, initialTab, onBack, on
       children: s.building ? <SiteVisitsTab kind="restaurant" premisesId={restaurantId} buildingId={s.building.id} reloadKey={key} /> : <Empty description="المطعم غير مرتبط بمبنى" /> },
     service: { label: <span><ToolOutlined /> طلبات الخدمة</span>,
       children: s.building ? <VillaServiceTab kind="restaurant" villaId={restaurantId} buildingId={s.building.id} reloadKey={key}
-        onChanged={() => setKey(k => k + 1)} onOpenContracts={onOpenBuilding ? () => onOpenBuilding(s.building.id) : undefined} />
+        onChanged={() => setKey(k => k + 1)} onOpenContracts={() => setActiveTab('contracts')} />
         : <Empty description="المطعم غير مرتبط بمبنى" /> },
     invoicing: { label: <span><FileDoneOutlined /> التعبئات والفواتير {ready.length > 0 && <Tag color="orange">{ready.length}</Tag>}</span>,
       children: <Card style={cardStyle}>{refillsInvoicesTable}</Card> },
@@ -482,7 +522,7 @@ export default function RestaurantProfile({ restaurantId, initialTab, onBack, on
     signatories: { label: <span><TeamOutlined /> المخولون بالتوقيع ({s.signatories?.length ?? 0})</span>, children: signatoriesTab },
     docs: { label: <span><FileTextOutlined /> الوثائق ({docs.length})</span>, children: docsTab },
   };
-  const counts: Record<string, number> = { contracts: s.contracts?.length ?? 0, financials: invoices.length, tanks: tanks.length, refill: requests.length, signatories: s.signatories?.length ?? 0, docs: docs.length };
+  const counts: Record<string, number> = { contracts: (s.contracts?.length ?? 0) + amcs.length, financials: invoices.length, tanks: tanks.length, refill: requests.length, signatories: s.signatories?.length ?? 0, docs: docs.length };
   const groups = [
     { key: 'g-site', label: 'المطعم', icon: <ShopOutlined />, tabs: ['site'] },
     { key: 'g-finance', label: 'العقود والمالية', icon: <FileTextOutlined />, tabs: ['contracts', 'financials', 'invoicing'] },
@@ -527,6 +567,8 @@ export default function RestaurantProfile({ restaurantId, initialTab, onBack, on
       </div>
       <Spin spinning={loading}><div key={activeTab}>{tabs[activeTab]?.children ?? siteTab}</div></Spin>
 
+      <RecordPaymentModal open={!!payFor} tenantId={s.owner?.id} invoiceId={payFor?.invoiceId} onClose={() => setPayFor(null)} onSaved={() => { setPayFor(null); changed(); }} />
+      <PremisesAmcModal site={s} open={amcOpen} onClose={() => setAmcOpen(false)} onSaved={() => { setAmcOpen(false); changed(); }} />
       <PremisesFormModal type="restaurant" open={editOpen} editing={s} onClose={() => setEditOpen(false)} onSaved={() => { setEditOpen(false); changed(); }} />
       <ContractModal site={s} contract={editContract} open={contractOpen} onClose={() => setContractOpen(false)} onSaved={() => { setContractOpen(false); changed(); }} />
       <SignatoryModal siteId={s.id} signatory={editSig} open={sigOpen} onClose={() => setSigOpen(false)} onSaved={() => { setSigOpen(false); changed(); }} />

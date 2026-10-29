@@ -8,8 +8,9 @@ import { useReference, locName } from '../../api/reference';
 import { useAuth } from '../../auth/AuthContext';
 import { premisesApi, type PremisesKpis, type PremisesListItem, type PremisesRefillRow, type PremisesType } from '../../api/premises';
 import { PageBanner, Kpi } from '../Customers/shared';
-import { PremisesFormModal, InvoiceRefillModal, PRIMARY, GOLD, money, litres, d10 } from './forms';
+import { InvoiceRefillModal, PRIMARY, GOLD, money, litres, d10 } from './forms';
 import PremisesDrawer from './PremisesDrawer';
+import PremisesWizard from './PremisesWizard';
 
 const { Text } = Typography;
 
@@ -138,7 +139,7 @@ export default function PremisesPage({ type }: { type: PremisesType }) {
       </Card>
 
       <PremisesDrawer id={openId} onClose={closeDrawer} onChanged={refresh} />
-      <PremisesFormModal type={type} open={formOpen} onClose={() => setFormOpen(false)}
+      <PremisesWizard type={type} open={formOpen} onClose={() => setFormOpen(false)} onListChanged={refresh}
         onSaved={id => { setFormOpen(false); refresh(); setOpenId(id); }} />
       <InvoiceRefillModal row={invoiceRow} open={!!invoiceRow} onClose={() => setInvoiceRow(null)} onDone={() => { setInvoiceRow(null); refresh(); }} />
     </div>

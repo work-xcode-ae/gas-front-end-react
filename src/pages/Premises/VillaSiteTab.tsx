@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Row, Col, Card, Descriptions, Tag, Table, Button, Space, Typography, Progress, Empty, Modal, Input, Popconfirm, Spin, Tooltip, message } from 'antd';
 import {
-  HomeOutlined, UserOutlined, PhoneOutlined, EditOutlined, PlusOutlined, StopOutlined, FileDoneOutlined, FireOutlined,
+  HomeOutlined, UserOutlined, PhoneOutlined, PrinterOutlined, EditOutlined, PlusOutlined, StopOutlined, FileDoneOutlined, FireOutlined,
   DatabaseOutlined, FileProtectOutlined, DollarOutlined, PauseCircleOutlined, PlayCircleOutlined, ArrowLeftOutlined,
 } from '@ant-design/icons';
 import { errorMessage } from '../../api/client';
 import { premisesApi } from '../../api/premises';
 import { useAuth } from '../../auth/AuthContext';
+import { openPrintWindow, printDeliveryContract } from '../../utils/printDocs';
 import { HistoryButton, useTrackView } from '../../components/history/RecordHistory';
 import { PremisesFormModal, ContractModal, InvoiceRefillModal, PRIMARY, money, litres, d10 } from './forms';
 
@@ -169,9 +170,10 @@ export default function VillaSiteTab({ villaId, onGoTo, onChanged }: { villaId: 
                 { title: 'المفوتر', render: (_, c) => <span>{money(c.invoicedTotal)}<div style={{ fontSize: 11, color: '#888' }}>{litres(c.invoicedLitres)}</div></span> },
                 { title: 'الحالة', dataIndex: 'status', render: x => <Tag color={CONTRACT_STATUS[x]?.color}>{CONTRACT_STATUS[x]?.label ?? x}</Tag> },
                 { title: '', render: (_, c) => canManage && c.status === 'active' ? <Space size={0}>
+          <Tooltip title="طباعة العقد"><Button type="text" size="small" icon={<PrinterOutlined />} onClick={() => printDeliveryContract(openPrintWindow(), c.id)} /></Tooltip>
                   <Tooltip title="تعديل"><Button type="text" size="small" icon={<EditOutlined />} onClick={() => { setEditContract(c); setContractOpen(true); }} /></Tooltip>
                   <Tooltip title="إنهاء العقد"><Button type="text" size="small" danger icon={<StopOutlined />} onClick={() => terminate(c)} /></Tooltip>
-                </Space> : <HistoryButton entityType="DeliveryContract" id={c.id} label={null} type="text" /> },
+                </Space> : <Space size={0}><Tooltip title="طباعة العقد"><Button type="text" size="small" icon={<PrinterOutlined />} onClick={() => printDeliveryContract(openPrintWindow(), c.id)} /></Tooltip><HistoryButton entityType="DeliveryContract" id={c.id} label={null} type="text" /></Space> },
               ]} />
           </Card>
         </Col>

@@ -12,7 +12,8 @@ import { useReference, locName } from '../../api/reference';
 import { useAuth } from '../../auth/AuthContext';
 import { premisesApi, type PremisesKpis, type PremisesListItem, type PremisesRefillRow } from '../../api/premises';
 import BuildingProfile from '../Buildings/BuildingProfile';
-import { PremisesFormModal, InvoiceRefillModal, PRIMARY, money, litres, d10 } from './forms';
+import { InvoiceRefillModal, PRIMARY, money, litres, d10 } from './forms';
+import PremisesWizard from './PremisesWizard';
 
 const { Title, Text } = Typography;
 const PRIMARY_LIGHT = '#e8f5e9';
@@ -106,7 +107,7 @@ export default function VillasPage() {
   if (open) {
     return (
       <div style={{ padding: '20px 24px 32px', background: '#f7f8fa', minHeight: '100vh' }}>
-        <BuildingProfile buildingId={open.buildingId} villaId={open.id} initialTab={open.tab ?? 'villa'} onBack={closeVilla} />
+        <BuildingProfile buildingId={open.buildingId} villaId={open.id} initialTab={open.tab ?? 'villaoverview'} onBack={closeVilla} />
       </div>
     );
   }
@@ -236,7 +237,7 @@ export default function VillasPage() {
         )}
       </Card>
 
-      <PremisesFormModal type="villa" open={formOpen} onClose={() => setFormOpen(false)}
+      <PremisesWizard type="villa" open={formOpen} onClose={() => setFormOpen(false)} onListChanged={reload}
         onSaved={id => { setFormOpen(false); reload(); premisesApi.get(id).then(d => openVilla({ id, buildingId: d.building?.id }, 'villa')).catch(() => undefined); }} />
       <InvoiceRefillModal row={invoiceRow} open={!!invoiceRow} onClose={() => setInvoiceRow(null)} onDone={() => { setInvoiceRow(null); reload(); }} />
     </div>

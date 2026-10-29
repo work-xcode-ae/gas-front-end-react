@@ -35,6 +35,9 @@ import { BuildingVisitsTab, BuildingServiceRequestsTab } from './BuildingOpsTabs
 import CocRenewalModal from './CocRenewalModal';
 import UnitProfileDrawer from './UnitProfileDrawer';
 import { unitsApi, type UnitDto } from '../../api/units';
+import { premisesApi } from '../../api/premises';
+import VillaGasContracts from '../Premises/VillaGasContracts';
+import VillaOverview from '../Premises/VillaOverview';
 import { BuildingOverviewLive, BuildingOwnersLive, BuildingDocsLive, BuildingActivityLive, BuildingFinanceLive } from './BuildingLiveTabs';
 import { CocCertificateDetails } from './CocStepPanels';
 import { RecordVisitModal, UploadReportModal } from './AmcVisitModals';
@@ -577,7 +580,7 @@ interface LiveBuilding {
 }
 
 const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, initialTab, villaId }) => {
-  const [activeTab, setActiveTab] = useState(initialTab ?? (villaId ? 'villa' : buildingId ? 'units' : 'overview'));
+  const [activeTab, setActiveTab] = useState(initialTab ?? (villaId ? 'villaoverview' : buildingId ? 'units' : 'overview'));
   const [live, setLive] = useState<LiveBuilding | null>(null);
   const [liveKey, setLiveKey] = useState(0);
   const [editOpen, setEditOpen] = useState(false);
@@ -714,7 +717,13 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
       .catch(() => setLiveSupply([]));
   }, [buildingId, liveKey]);
   const amcList: any[] = buildingId ? (liveAmc ?? []) : amcContracts;
-  const supplyList: any[] = buildingId ? (liveSupply ?? []) : building.supplyContracts;
+  // villa mode: no units → the villa's own gas contracts (price per litre) replace the unit supply contracts
+  const [villaGas, setVillaGas] = useState<any[]>([]);
+  useEffect(() => {
+    if (!villaId) return;
+    premisesApi.get(villaId).then(d => setVillaGas(d.contracts ?? [])).catch(() => setVillaGas([]));
+  }, [villaId, liveKey]);
+  const supplyList: any[] = villaId ? villaGas : buildingId ? (liveSupply ?? []) : building.supplyContracts;
   const [refillRequests, setRefillRequests] = useState<RefillRequestItem[]>(buildingId ? [] : (building.refillRequests ?? []) as RefillRequestItem[]);
   // live operations data of the building: refill requests + tab counts
   const [opsCounts, setOpsCounts] = useState<{ visits: number; service: number; coc: number } | null>(null);
@@ -1341,10 +1350,10 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
           }}>
           <div style={{ fontSize: 24, marginBottom: 4 }}><FireOutlined style={{ color: contractTab === 'supply' ? '#fa8c16' : '#bbb' }} /></div>
           <Text strong style={{ color: contractTab === 'supply' ? '#fa8c16' : '#666', display: 'block' }}>عقود توريد الغاز</Text>
-          <Text type="secondary" style={{ fontSize: 11 }}>Gas Supply Contract — رسوم شهرية ومتابعة العدادات</Text>
+          <Text type="secondary" style={{ fontSize: 11 }}>{villaId ? 'Gas Supply Contract — سعر اللتر وفاتورة لكل تعبئة' : 'Gas Supply Contract — رسوم شهرية ومتابعة العدادات'}</Text>
           <div style={{ marginTop: 8 }}>
             <Tag color="success">{supplyList.filter((c: any) => c.status === 'active').length} نشط</Tag>
-            <Tag color="error">{supplyList.filter((c: any) => c.status === 'expired').length} منتهي</Tag>
+            <Tag color="error">{supplyList.filter((c: any) => c.status === 'expired' || (villaId && c.status === 'terminated')).length} منتهي</Tag>
           </div>
         </div>
       </div>
@@ -1481,7 +1490,10 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
       )}
 
       {/* ═══════════ SUPPLY CONTRACTS SECTION ═══════════ */}
-      {contractTab === 'supply' && (
+      {contractTab === 'supply' && villaId && (
+        <VillaGasContracts villaId={villaId} reloadKey={liveKey} onChanged={() => setLiveKey(k => k + 1)} />
+      )}
+      {contractTab === 'supply' && !villaId && (
         <div>
           {/* Summary */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -2903,6 +2915,8 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
         ? <BuildingTenantsTab buildingId={buildingId} buildingName={hd.name} canManage={canManageBuilding} onChanged={() => setLiveKey(k => k + 1)} />
         : tenantsTab },
     // Restaurants & Villas module (additive tabs)
+    ...(villaId && buildingId ? [{ key: 'villaoverview', label: <span><BarChartOutlined /> نظرة عامة</span>,
+      children: <VillaOverview villaId={villaId} buildingId={buildingId} live={live} reloadKey={liveKey} onGoTo={setActiveTab} /> }] : []),
     ...(villaId ? [{ key: 'villa', label: <span><HomeOutlined /> الفيلا والعقد</span>,
       children: <VillaSiteTab villaId={villaId} onGoTo={setActiveTab} onChanged={() => setLiveKey(k => k + 1)} /> }] : []),
     ...(buildingId ? [{ key: 'restaurants', label: <span><RestaurantTabIcon /> المطاعم</span>,
@@ -2943,7 +2957,8 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
     owners: live ? live.owners.length : building.owners.length, docs: buildingId ? docCount ?? 0 : building.documents.length,
   };
   const groups = villaId ? [
-    { key: 'g-overview', label: 'الفيلا', icon: <HomeOutlined />, tabs: ['villa'] },
+    { key: 'g-overview', label: 'نظرة عامة', icon: <BarChartOutlined />, tabs: ['villaoverview'] },
+    { key: 'g-villa', label: 'الفيلا', icon: <HomeOutlined />, tabs: ['villa'] },
     { key: 'g-finance', label: 'العقود والمالية', icon: <FileTextOutlined />, tabs: ['contracts', 'financials'] },
     { key: 'g-ops', label: 'الخزان والخدمات', icon: <ToolOutlined />, tabs: ['tanks', 'refill', 'visits', 'service', 'civildefense'] },
     { key: 'g-building', label: 'البيانات والوثائق', icon: <BankOutlined />, tabs: ['info', 'owners', 'docs', 'activity'] },
