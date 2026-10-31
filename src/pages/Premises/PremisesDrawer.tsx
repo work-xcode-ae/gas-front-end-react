@@ -95,7 +95,6 @@ export default function PremisesDrawer({ id, onClose, onChanged }: { id: number 
           <Descriptions.Item label="المنطقة / المجمع">{s.villa.community ?? '—'}</Descriptions.Item>
           <Descriptions.Item label="رقم الفيلا / القطعة">{[s.villa.villaNo, s.villa.plotNo].filter(Boolean).join(' / ') || '—'}</Descriptions.Item>
           <Descriptions.Item label="رقم مكاني">{s.villa.makaniNo ?? '—'}</Descriptions.Item>
-          <Descriptions.Item label="غرف النوم">{s.villa.bedrooms ?? '—'}</Descriptions.Item>
           <Descriptions.Item label="العنوان" span={2}>{[s.building?.city, s.building?.zone, s.building?.street, s.building?.address].filter(Boolean).join('، ') || '—'}</Descriptions.Item>
         </>}
         {s.restaurant && <>

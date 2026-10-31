@@ -222,7 +222,6 @@ const UnitProfileDrawer: React.FC<Props> = ({ unit, buildingName, canManage, onC
                 { l: 'الطابق', v: floorLabel(unit.floor), icon: <BarChartOutlined /> },
                 { l: 'النوع', v: unit.typeLabel ?? unit.type ?? '—', icon: typeIcon },
                 { l: 'المساحة', v: unit.area ? `${unit.area} م²` : '—', icon: <AppstoreOutlined /> },
-                { l: 'الغرف', v: unit.bedrooms || unit.bathrooms ? `${unit.bedrooms ?? 0} غرف · ${unit.bathrooms ?? 0} حمامات` : '—', icon: <HomeOutlined /> },
               ].map(f => (
                 <Col span={8} key={f.l}>
                   <Space>
@@ -600,7 +599,7 @@ const UnitProfileDrawer: React.FC<Props> = ({ unit, buildingName, canManage, onC
               <Tag color={st.color} style={{ fontSize: 11 }}>{unit.statusLabel ?? st.label}</Tag>
               {unit.isActive === false && <Tag color="default" icon={<StopOutlined />} style={{ fontSize: 11 }}>موقوفة</Tag>}
               <Text type="secondary" style={{ fontSize: 12 }}>
-                {[unit.typeLabel, unit.area ? `${unit.area} م²` : null, unit.bedrooms ? `${unit.bedrooms} غرف` : null, floorLabel(unit.floor)].filter(Boolean).join(' · ')}
+                {[unit.typeLabel, unit.area ? `${unit.area} م²` : null, floorLabel(unit.floor)].filter(Boolean).join(' · ')}
               </Text>
             </Space>
           </div>

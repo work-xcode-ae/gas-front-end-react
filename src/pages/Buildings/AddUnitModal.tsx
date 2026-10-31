@@ -226,36 +226,6 @@ const AddUnitModal: React.FC<AddUnitModalProps> = ({
       ),
     },
     {
-      title: 'غرف',
-      dataIndex: 'bedrooms',
-      width: 65,
-      render: (_: unknown, row: UnitRow) => (
-        <InputNumber
-          size="small"
-          min={0}
-          max={10}
-          style={{ width: '100%' }}
-          value={row.bedrooms ?? undefined}
-          onChange={v => updateRow(row.key, 'bedrooms', v)}
-        />
-      ),
-    },
-    {
-      title: 'حمام',
-      dataIndex: 'bathrooms',
-      width: 65,
-      render: (_: unknown, row: UnitRow) => (
-        <InputNumber
-          size="small"
-          min={0}
-          max={10}
-          style={{ width: '100%' }}
-          value={row.bathrooms ?? undefined}
-          onChange={v => updateRow(row.key, 'bathrooms', v)}
-        />
-      ),
-    },
-    {
       title: 'الإيجار د.إ',
       dataIndex: 'rent',
       width: 110,
@@ -422,20 +392,6 @@ const AddUnitModal: React.FC<AddUnitModalProps> = ({
               </Form.Item>
             </Col>
 
-            {/* Bedrooms */}
-            <Col span={8}>
-              <Form.Item name="bedrooms" label="غرف النوم">
-                <InputNumber min={0} max={10} style={{ width: '100%' }} placeholder="2" />
-              </Form.Item>
-            </Col>
-
-            {/* Bathrooms */}
-            <Col span={8}>
-              <Form.Item name="bathrooms" label="الحمامات">
-                <InputNumber min={0} max={10} style={{ width: '100%' }} placeholder="1" />
-              </Form.Item>
-            </Col>
-
             <Divider style={{ margin: '4px 0 8px', gridColumn: '1/-1' }} />
 
             {/* Status */}
@@ -515,12 +471,6 @@ const AddUnitModal: React.FC<AddUnitModalProps> = ({
               </Form.Item>
               <Form.Item name="area" label="المساحة م²">
                 <InputNumber min={10} style={{ width: 90 }} placeholder="120" />
-              </Form.Item>
-              <Form.Item name="bedrooms" label="غرف">
-                <InputNumber min={0} max={10} style={{ width: 70 }} placeholder="2" />
-              </Form.Item>
-              <Form.Item name="bathrooms" label="حمام">
-                <InputNumber min={0} max={10} style={{ width: 70 }} placeholder="1" />
               </Form.Item>
               <Form.Item name="rent" label="الإيجار">
                 <InputNumber min={0} style={{ width: 110 }} placeholder="45000" />

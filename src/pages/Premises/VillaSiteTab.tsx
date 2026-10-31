@@ -129,7 +129,6 @@ export default function VillaSiteTab({ villaId, onGoTo, onChanged }: { villaId: 
               <Descriptions.Item label="رقم القطعة">{v.plotNo ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="رقم الفيلا">{v.villaNo ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="رقم مكاني">{v.makaniNo ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="غرف النوم">{v.bedrooms ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="العنوان" span={2}>{[s.building?.street, s.building?.address].filter(Boolean).join('، ') || '—'}</Descriptions.Item>
               {s.notes && <Descriptions.Item label="ملاحظات" span={2}>{s.notes}</Descriptions.Item>}
             </Descriptions>

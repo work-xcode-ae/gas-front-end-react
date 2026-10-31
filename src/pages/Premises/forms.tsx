@@ -302,7 +302,8 @@ export function PremisesFormModal({ type, open, editing, buildingId, onClose, on
             <Col xs={12} md={6}><Form.Item name="cityId" label="المدينة"><Select allowClear showSearch optionFilterProp="label"
               options={(ref?.cities ?? []).map(c => ({ value: c.id, label: locName(c, isAr) }))} /></Form.Item></Col>
             <Col xs={12} md={6}><Form.Item name="street" label="الشارع"><Input /></Form.Item></Col>
-            <Col xs={12} md={6}><Form.Item name="bedrooms" label="غرف النوم"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+            {/* bedrooms hidden from UI for now — hidden field keeps the stored value on edit */}
+            <Form.Item name="bedrooms" hidden><InputNumber /></Form.Item>
             <Col xs={12} md={6}><Form.Item name="poBox" label="ص.ب"><Input /></Form.Item></Col>
             <Col xs={24}><Form.Item name="address" label="العنوان"><Input /></Form.Item></Col>
           </Row>
