@@ -12,6 +12,9 @@ import { clearReferenceCache, locName, useReference } from '../../api/reference'
 import { useAuth } from '../../auth/AuthContext';
 import LookupListSettings from './LookupListSettings';
 
+/** Lookup lists hidden from settings for now (not relevant to gas/petrol work). Still in the API. */
+const HIDDEN_LOOKUP_TYPES = ['KITCHEN_TYPE'];
+
 const { Text } = Typography;
 
 // ═════════════ company profile + branding ═════════════
@@ -190,7 +193,7 @@ function LookupsSection() {
   const [code, setCode] = useState<string | undefined>();
   useEffect(() => {
     api<Paged<any>>('/lookup-types', { query: { pageSize: 0 } })
-      .then(r => { const t = [...r.items].sort((a, b) => String(a.nameAr ?? a.code).localeCompare(String(b.nameAr ?? b.code), 'ar')); setTypes(t); })
+      .then(r => { const t = r.items.filter((x: any) => !HIDDEN_LOOKUP_TYPES.includes(x.code)).sort((a, b) => String(a.nameAr ?? a.code).localeCompare(String(b.nameAr ?? b.code), 'ar')); setTypes(t); })
       .catch(e => message.error(errorMessage(e)));
   }, []);
   const cur = types.find(t => t.code === code);

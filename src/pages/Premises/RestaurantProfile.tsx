@@ -193,7 +193,6 @@ export default function RestaurantProfile({ restaurantId, initialTab, onBack, on
                 <Title level={5} style={{ margin: 0, color: '#fff', fontSize: 17 }}>{s.name}</Title>
                 <Tag color={s.isActive ? 'success' : 'default'} style={{ borderRadius: 8, fontWeight: 600 }}>{s.isActive ? 'نشط' : 'موقوف'}</Tag>
                 <Tag style={{ borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff' }}>مطعم</Tag>
-                {r.kitchenTypeLabel && <Tag style={{ borderRadius: 8, background: 'rgba(255,255,255,0.15)', border: 'none', color: '#fff' }}>{r.kitchenTypeLabel}</Tag>}
               </div>
               <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12 }}>
                 {[r.tradeName, s.code].filter(Boolean).join(' · ')}
@@ -322,9 +321,6 @@ export default function RestaurantProfile({ restaurantId, initialTab, onBack, on
               <Descriptions.Item label="الوحدة">{s.unit?.unitNo ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="الرخصة التجارية">{r.tradeLicenseNo ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="انتهاء الرخصة">{r.tradeLicenseExpiry ? <Tag color={licenceExpired ? 'red' : 'default'}>{d10(r.tradeLicenseExpiry)}</Tag> : '—'}</Descriptions.Item>
-              <Descriptions.Item label="نوع المطبخ">{[r.kitchenTypeLabel, r.cuisine].filter(Boolean).join(' · ') || '—'}</Descriptions.Item>
-              <Descriptions.Item label="المقاعد / الشعلات">{r.seatingCapacity ?? '—'} / {r.burnersCount ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="ساعات العمل">{r.operatingHours ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="الفرع">{s.branch ?? '—'}</Descriptions.Item>
               {s.notes && <Descriptions.Item label="ملاحظات" span={2}>{s.notes}</Descriptions.Item>}
             </Descriptions>
