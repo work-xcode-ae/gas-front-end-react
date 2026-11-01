@@ -182,8 +182,7 @@ export default function PremisesWizard({ type, open, buildingId, onClose, onSave
       </Form.Item>
       <Row gutter={12}>
         <Col xs={24} md={12}><Form.Item name="community" label="المنطقة / المجمع"><Input style={inputStyle} /></Form.Item></Col>
-        <Col xs={12} md={6}><Form.Item name="villaNo" label="رقم الفيلا"><Input style={inputStyle} /></Form.Item></Col>
-        <Col xs={12} md={6}><Form.Item name="bedrooms" label="غرف النوم"><InputNumber min={0} style={{ ...inputStyle, width: '100%' }} /></Form.Item></Col>
+        <Col xs={24} md={12}><Form.Item name="villaNo" label="رقم الفيلا"><Input style={inputStyle} /></Form.Item></Col>
         <Col xs={12} md={12}><Form.Item name="plotNo" label="رقم القطعة"><Input style={inputStyle} /></Form.Item></Col>
         <Col xs={12} md={12}><Form.Item name="makaniNo" label="رقم مكاني"><Input dir="ltr" style={inputStyle} /></Form.Item></Col>
       </Row>
@@ -209,11 +208,6 @@ export default function PremisesWizard({ type, open, buildingId, onClose, onSave
         <Col xs={24} md={8}><Form.Item name="tradeName" label="الاسم التجاري"><Input style={inputStyle} /></Form.Item></Col>
         <Col xs={12} md={8}><Form.Item name="tradeLicenseNo" label="رقم الرخصة التجارية"><Input dir="ltr" style={inputStyle} /></Form.Item></Col>
         <Col xs={12} md={8}><Form.Item name="tradeLicenseExpiry" label="انتهاء الرخصة"><DatePicker style={{ ...inputStyle, width: '100%' }} /></Form.Item></Col>
-        <Col xs={12} md={6}><Form.Item name="kitchenType" label="نوع المطبخ"><Select allowClear style={inputStyle} options={(ref?.lookups?.KITCHEN_TYPE ?? []).map(k => ({ value: k.code, label: k.label }))} /></Form.Item></Col>
-        <Col xs={12} md={6}><Form.Item name="cuisine" label="نوع الأكل"><Input placeholder="عربي، هندي…" style={inputStyle} /></Form.Item></Col>
-        <Col xs={8} md={4}><Form.Item name="seatingCapacity" label="المقاعد"><InputNumber min={0} style={{ ...inputStyle, width: '100%' }} /></Form.Item></Col>
-        <Col xs={8} md={4}><Form.Item name="burnersCount" label="عدد الشعلات"><InputNumber min={0} style={{ ...inputStyle, width: '100%' }} /></Form.Item></Col>
-        <Col xs={8} md={4}><Form.Item name="operatingHours" label="ساعات العمل"><Input placeholder="10:00–24:00" style={inputStyle} /></Form.Item></Col>
       </Row>
     </div>
   );

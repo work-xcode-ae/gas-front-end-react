@@ -361,7 +361,7 @@ const BuildingFloorPlan: React.FC<Props> = ({ buildingId, buildingName, totalFlo
       <Tooltip key={u.id} title={<div style={{ lineHeight: 1.6 }}>
         <div><b>الوحدة {u.no}</b> · {typeMeta(u.type).icon} {u.typeLabel ?? typeMeta(u.type).label}</div>
         <div>{u.tenant ? <><UserOutlined /> {u.tenant}</> : st.label}</div>
-        {(u.area || u.bedrooms) ? <div>{[u.area ? `${u.area} م²` : null, u.bedrooms ? `${u.bedrooms} غرف` : null].filter(Boolean).join(' · ')}</div> : null}
+        {u.area ? <div>{`${u.area} م²`}</div> : null}
         {u.meter ? <div><FireOutlined /> {u.meter}</div> : null}
         {sr ? <div style={{ marginTop: 4, color: '#ffd591' }}><BellOutlined /> {srCount} طلب خدمة مفتوح — {sr.pending} معلق · {sr.inProgress} قيد التنفيذ</div> : null}
       </div>}>
@@ -802,8 +802,6 @@ const BuildingFloorPlan: React.FC<Props> = ({ buildingId, buildingName, totalFlo
             </div>
             <Descriptions column={2} size="small" bordered labelStyle={{ width: 110 }}>
               <Descriptions.Item label="المساحة" span={2}>{u.area ? `${u.area} م²` : '—'}</Descriptions.Item>
-              <Descriptions.Item label="غرف النوم">{u.bedrooms ?? '—'}</Descriptions.Item>
-              <Descriptions.Item label="الحمامات">{u.bathrooms ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="الإيجار السنوي" span={2}>{u.rent ? `${Number(u.rent).toLocaleString()} د.إ` : '—'}</Descriptions.Item>
               <Descriptions.Item label="آخر فحص" span={2}>{u.lastInspectionDate ?? '—'}</Descriptions.Item>
             </Descriptions>
@@ -854,15 +852,12 @@ const BuildingFloorPlan: React.FC<Props> = ({ buildingId, buildingName, totalFlo
                   <Select options={unitStatuses.map(s => ({ value: s.code, label: s.label }))} />
                 </Form.Item>
               </Col>
-              <Col span={8}>
+              <Col span={12}>
                 <Form.Item name="area" label="المساحة (م²)"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item>
               </Col>
-              <Col span={8}>
-                <Form.Item name="bedrooms" label="غرف النوم"><InputNumber min={0} max={20} style={{ width: '100%' }} /></Form.Item>
-              </Col>
-              <Col span={8}>
-                <Form.Item name="bathrooms" label="الحمامات"><InputNumber min={0} max={20} style={{ width: '100%' }} /></Form.Item>
-              </Col>
+              {/* bedrooms/bathrooms hidden from UI for now — kept as hidden fields so edits don't wipe stored values */}
+              <Form.Item name="bedrooms" hidden><InputNumber /></Form.Item>
+              <Form.Item name="bathrooms" hidden><InputNumber /></Form.Item>
               <Col span={12}>
                 <Form.Item name="rent" label="الإيجار السنوي (د.إ)">
                   <InputNumber min={0} style={{ width: '100%' }} formatter={v => `${v ?? ''}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} parser={v => (v ? Number(v.replace(/,/g, '')) : 0) as any} />

@@ -1706,7 +1706,7 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
                 <div style={{ width: 48, height: 48, borderRadius: 10, background: `${unitStatusColors[u.status]}22`, border: `2px solid ${unitStatusColors[u.status]}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 8px', fontSize: 14, fontWeight: 700, color: unitStatusColors[u.status] }}>{u.no}</div>
                 <Tag color={unitStatusMap[u.status]?.color} style={{ marginBottom: 6 }}>{unitStatusMap[u.status]?.label}</Tag>
                 <div style={{ fontSize: 12, color: '#666', marginBottom: 2 }}>{u.typeLabel} · ط{u.floor}</div>
-                <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>{u.area} م² · {u.bedrooms} غرف</div>
+                <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>{u.area} م²</div>
                 {u.tenant ? <Text style={{ fontSize: 11, color: PRIMARY }}>{u.tenant}</Text> : <Text type="secondary" style={{ fontSize: 11 }}>شاغرة</Text>}
               </Card>
             </Col>
@@ -1721,7 +1721,6 @@ const BuildingProfile: React.FC<BuildingProfileProps> = ({ onBack, buildingId, i
             { title: 'الطابق', dataIndex: 'floor', width: 70, align: 'center' as const },
             { title: 'النوع', dataIndex: 'typeLabel', width: 90 },
             { title: 'المساحة', dataIndex: 'area', width: 90, render: (v: number) => `${v} م²` },
-            { title: 'الغرف', dataIndex: 'bedrooms', width: 70, align: 'center' as const, render: (v: number, r: any) => `${v}غ/${r.bathrooms}ح` },
             { title: 'الحالة', dataIndex: 'status', width: 90, render: (v: string) => <Tag color={unitStatusMap[v]?.color}>{unitStatusMap[v]?.label}</Tag> },
             { title: 'المستأجر', dataIndex: 'tenant', render: (v: string | null) => v ? <Text style={{ fontSize: 12 }}>{v}</Text> : <Text type="secondary" style={{ fontSize: 12 }}>—</Text> },
             { title: 'العداد', dataIndex: 'meter', width: 85, render: (v: string) => <Tag color="geekblue" style={{ fontFamily: 'monospace', fontSize: 11 }}>{v}</Tag> },

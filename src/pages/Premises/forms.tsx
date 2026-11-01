@@ -302,7 +302,8 @@ export function PremisesFormModal({ type, open, editing, buildingId, onClose, on
             <Col xs={12} md={6}><Form.Item name="cityId" label="المدينة"><Select allowClear showSearch optionFilterProp="label"
               options={(ref?.cities ?? []).map(c => ({ value: c.id, label: locName(c, isAr) }))} /></Form.Item></Col>
             <Col xs={12} md={6}><Form.Item name="street" label="الشارع"><Input /></Form.Item></Col>
-            <Col xs={12} md={6}><Form.Item name="bedrooms" label="غرف النوم"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
+            {/* bedrooms hidden from UI for now — hidden field keeps the stored value on edit */}
+            <Form.Item name="bedrooms" hidden><InputNumber /></Form.Item>
             <Col xs={12} md={6}><Form.Item name="poBox" label="ص.ب"><Input /></Form.Item></Col>
             <Col xs={24}><Form.Item name="address" label="العنوان"><Input /></Form.Item></Col>
           </Row>
@@ -321,11 +322,13 @@ export function PremisesFormModal({ type, open, editing, buildingId, onClose, on
             <Col xs={24} md={8}><Form.Item name="tradeName" label="الاسم التجاري"><Input /></Form.Item></Col>
             <Col xs={12} md={8}><Form.Item name="tradeLicenseNo" label="رقم الرخصة التجارية"><Input dir="ltr" /></Form.Item></Col>
             <Col xs={12} md={8}><Form.Item name="tradeLicenseExpiry" label="انتهاء الرخصة"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={12} md={6}><Form.Item name="kitchenType" label="نوع المطبخ"><Select allowClear options={(ref?.lookups?.KITCHEN_TYPE ?? []).map(k => ({ value: k.code, label: k.label }))} /></Form.Item></Col>
-            <Col xs={12} md={6}><Form.Item name="cuisine" label="نوع المطبخ / الأكل"><Input placeholder="عربي، هندي…" /></Form.Item></Col>
-            <Col xs={12} md={4}><Form.Item name="seatingCapacity" label="المقاعد"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={12} md={4}><Form.Item name="burnersCount" label="عدد الشعلات"><InputNumber min={0} style={{ width: '100%' }} /></Form.Item></Col>
-            <Col xs={24} md={4}><Form.Item name="operatingHours" label="ساعات العمل"><Input placeholder="10:00–24:00" /></Form.Item></Col>
+            {/* kitchen type hidden from UI for now */}<Form.Item name="kitchenType" hidden><Input /></Form.Item>
+            {/* cuisine (food type) hidden from UI for now — hidden field keeps the stored value on edit */}
+            <Form.Item name="cuisine" hidden><Input /></Form.Item>
+            {/* seats / burners / working hours hidden from UI for now — hidden fields keep stored values on edit */}
+            <Form.Item name="seatingCapacity" hidden><InputNumber /></Form.Item>
+            <Form.Item name="burnersCount" hidden><InputNumber /></Form.Item>
+            <Form.Item name="operatingHours" hidden><Input /></Form.Item>
           </Row>
         )}
 
