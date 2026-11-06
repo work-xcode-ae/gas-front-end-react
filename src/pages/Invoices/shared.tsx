@@ -3,6 +3,7 @@ import { Select, Modal, Form, InputNumber, DatePicker, Input, Table, Typography,
 import dayjs from 'dayjs';
 import type React from 'react';
 import { api, errorMessage, type Paged } from '../../api/client';
+import { postReceipt } from '../../api/receipts';
 
 const { Text } = Typography;
 export const PRIMARY = '#1a5c2a';
@@ -121,7 +122,7 @@ export function RecordPaymentModal({ open, tenantId, invoiceId, onClose, onSaved
     setSaving(true);
     try {
       const allocations = Object.entries(alloc).filter(([, a]) => Number(a) > 0).map(([id, a]) => ({ invoiceId: Number(id), amount: Number(a) }));
-      const r = await api<{ id: number; receiptNo: string; unallocated: number }>('/payments', {
+      const r = await postReceipt<{ id: number; receiptNo: string; unallocated: number }>({
         method: 'POST', body: {
           tenantId: customer, amount: v.amount, date: v.date.format('YYYY-MM-DD'), method: v.method, reference: v.reference || null,
           notes: v.notes || null, status: v.status, allocations: allocations.length ? allocations : null,

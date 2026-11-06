@@ -187,11 +187,17 @@ const AddToStockModal: React.FC<{ open: boolean; defaultBranchId?: number; onClo
   const [saving, setSaving] = useState(false);
   const mode: 'one' | 'many' = Form.useWatch('mode', form) ?? 'one';
   const serialsText: string = Form.useWatch('serials', form) ?? '';
+  const purchaseBillId: number | undefined = Form.useWatch('purchaseBillId', form);
   const serials = serialsText.split(/[\n,;]+/).map(s => s.trim()).filter(Boolean);
   const dups = serials.filter((s, i) => serials.findIndex(x => x.toLowerCase() === s.toLowerCase()) !== i);
+  // purchase bills that contain «gas meters (stock)» lines: the meters take their cost from the bill
+  const [bills, setBills] = useState<{ value: number; label: string; branchId?: number }[]>([]);
 
   useEffect(() => {
     if (!open) return;
+    api<Paged<any>>('/vendor-bills', { query: { pageSize: 100, itemType: 'meter_purchase' } })
+      .then(r => setBills(r.items.filter((b: any) => b.status !== 'cancelled').map((b: any) => ({ value: b.id, branchId: b.branchId, label: `${b.billNo} — ${b.vendor} (${b.billDate})` }))))
+      .catch(() => setBills([]));
     form.resetFields();
     form.setFieldsValue({ mode: 'one', branchId: defaultBranchId ?? ref?.branches[0]?.id, type: 'smart', initialReading: 0 });
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -208,6 +214,7 @@ const AddToStockModal: React.FC<{ open: boolean; defaultBranchId?: number; onClo
         branchId: v.branchId, serials: list, type: v.type, brand: v.brand?.trim() || undefined, model: v.model?.trim() || undefined,
         calibrationDate: v.calibrationDate ? (v.calibrationDate as dayjs.Dayjs).format('YYYY-MM-DD') : undefined,
         initialReading: v.initialReading ?? 0, notes: v.notes?.trim() || undefined,
+        purchaseBillId: v.purchaseBillId ?? undefined, unitCost: v.unitCost ?? undefined,
       } });
       message.success(r.length === 1 ? `تمت إضافة العداد ${r[0].meterNo} للمخزون` : `تمت إضافة ${r.length} عداد للمخزون (${r[0].meterNo} … ${r[r.length - 1].meterNo})`);
       onSaved();
@@ -234,8 +241,8 @@ const AddToStockModal: React.FC<{ open: boolean; defaultBranchId?: number; onClo
         )}
         <Row gutter={12}>
           <Col xs={24} md={12}>
-            <Form.Item name="branchId" label="الفرع / المستودع" rules={[{ required: true, message: 'مطلوب' }]}>
-              <Select options={(ref?.branches ?? []).map(b => ({ value: b.id, label: locName(b, isAr) }))} />
+            <Form.Item name="branchId" label="الفرع / المستودع" rules={[{ required: true, message: 'مطلوب' }]} extra={purchaseBillId ? 'فرع فاتورة الشراء' : undefined}>
+              <Select disabled={!!purchaseBillId} options={(ref?.branches ?? []).map(b => ({ value: b.id, label: locName(b, isAr) }))} />
             </Form.Item>
           </Col>
           <Col xs={24} md={12}><Form.Item name="type" label="نوع العداد"><Select options={(ref?.lookups?.METER_TYPE ?? []).map(t => ({ value: t.code, label: t.label }))} /></Form.Item></Col>
@@ -244,6 +251,19 @@ const AddToStockModal: React.FC<{ open: boolean; defaultBranchId?: number; onClo
           <Col xs={24} md={12}><Form.Item name="calibrationDate" label="تاريخ المعايرة"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
           <Col xs={24} md={12}><Form.Item name="initialReading" label="القراءة الابتدائية"><InputNumber min={0} style={{ width: '100%' }} addonAfter="م³" /></Form.Item></Col>
           <Col span={24}><Form.Item name="notes" label="ملاحظات"><Input placeholder="مثال: شحنة أكتوبر / رقم أمر الشراء" /></Form.Item></Col>
+          <Col xs={24} md={16}>
+            <Form.Item name="purchaseBillId" label="فاتورة الشراء (اختياري)"
+              tooltip="فاتورة المورد التي تحتوي بند «عدادات غاز (مخزون)». تأخذ العدادات تكلفتها منها وتظهر قيمتها في مخزون العدادات حتى تركيبها.">
+              <Select allowClear showSearch optionFilterProp="label" placeholder="بدون — لا تُسجَّل تكلفة" options={bills}
+                notFoundContent="لا توجد فاتورة مشتريات فيها بند «عدادات غاز (مخزون)»"
+                onChange={(id) => { const b = bills.find(x => x.value === id); if (b?.branchId) form.setFieldsValue({ branchId: b.branchId }); }} />
+            </Form.Item>
+          </Col>
+          <Col xs={24} md={8}>
+            <Form.Item name="unitCost" label="تكلفة العداد" tooltip="تلقائياً من الفاتورة (المبلغ ÷ الكمية، بدون الضريبة)">
+              <InputNumber min={0} style={{ width: '100%' }} addonAfter="د.إ" placeholder="من الفاتورة" />
+            </Form.Item>
+          </Col>
         </Row>
       </Form>
     </Modal>

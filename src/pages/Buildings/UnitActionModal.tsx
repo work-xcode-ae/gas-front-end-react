@@ -9,6 +9,7 @@ import {
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
 import { api, errorMessage, type Paged } from '../../api/client';
+import { postReceipt } from '../../api/receipts';
 import { useReference } from '../../api/reference';
 import type { UnitDto } from '../../api/units';
 import { openPrintWindow, printInvoice, printReceipt, printSupplyContract } from '../../utils/printDocs';
@@ -260,7 +261,8 @@ const UnitActionModal: React.FC<Props> = ({ action, unit, onClose, onDone, onSav
           unitId: unit.id,
           startDate: dateStr(v.startDate), endDate: dateStr(v.endDate), status: v.status,
           openingReading: v.status === 'active' ? v.openingReading : undefined,
-          depositAmount: v.depositAmount ?? null, depositPaid: !!v.depositPaid, depositDate: v.depositPaid ? dateStr(dayjs()) : undefined,
+          depositAmount: v.depositAmount ?? null, depositPaid: !!v.depositPaid, depositDate: v.depositPaid && v.depositDate ? dateStr(v.depositDate) : undefined,
+          depositMethod: v.depositPaid ? (v.depositMethod ?? 'cash') : undefined, depositReference: v.depositPaid ? (v.depositReference || undefined) : undefined,
           autoRenew: !!v.autoRenew, issueInitialInvoice: !!v.issueInitialInvoice, fees,
           termItems: toTermInputs(contractTerms ?? []),
           serviceType: v.serviceType || undefined, usageType: v.usageType || undefined,
@@ -339,7 +341,7 @@ const UnitActionModal: React.FC<Props> = ({ action, unit, onClose, onDone, onSav
         return;
       }
       if (action === 'payment') {
-        const r = await api<{ id: number; receiptNo: string; unallocated?: number }>('/payments', { body: {
+        const r = await postReceipt<{ id: number; receiptNo: string; unallocated?: number }>({ body: {
           tenantId: unit.tenantId, amount: v.amount, date: dateStr(v.date), method: v.method, reference: v.reference?.trim() || undefined,
           notes: v.notes?.trim() || undefined, invoiceId: v.alloc === 'invoice' ? v.invoiceId : undefined,
         } });
@@ -661,6 +663,34 @@ const UnitActionModal: React.FC<Props> = ({ action, unit, onClose, onDone, onSav
                       </div>
                     </Col>
                   </Row>
+                  <Form.Item noStyle shouldUpdate={(a, b) => a.depositPaid !== b.depositPaid}>
+                    {({ getFieldValue }) => getFieldValue('depositPaid') && Number(getFieldValue('depositAmount') ?? 0) > 0 ? (
+                      <Row gutter={12}>
+                        <Col xs={24} md={8}>
+                          <Form.Item name="depositMethod" label="طريقة استلام الوديعة" initialValue="cash" rules={[{ required: true }]}>
+                            <Select options={[
+                              { value: 'cash', label: 'نقداً' }, { value: 'bank_transfer', label: 'تحويل بنكي' },
+                              { value: 'cheque', label: 'شيك' }, { value: 'card', label: 'بطاقة' },
+                            ]} />
+                          </Form.Item>
+                        </Col>
+                        <Col xs={24} md={8}>
+                          <Form.Item name="depositDate" label="تاريخ الاستلام">
+                            <DatePicker style={{ width: '100%' }} format="DD-MM-YYYY" disabledDate={d => d.isAfter(dayjs(), 'day')} placeholder="تاريخ بداية العقد" />
+                          </Form.Item>
+                        </Col>
+                        <Col xs={24} md={8}>
+                          <Form.Item name="depositReference" label="المرجع (رقم الشيك / التحويل)">
+                            <Input />
+                          </Form.Item>
+                        </Col>
+                        <Col span={24}>
+                          <Alert type="info" showIcon style={{ marginBottom: 12 }}
+                            message="يُسجَّل سند قبض بالوديعة تلقائياً عند الحفظ (مدين الصندوق / البنك، دائن تأمينات العملاء)" />
+                        </Col>
+                      </Row>
+                    ) : null}
+                  </Form.Item>
                   <div className="ua-toggle">
                     <div><div className="ua-toggle-title"><FileTextOutlined style={{ marginInlineEnd: 6, color: PRIMARY }} />إصدار فاتورة أولية</div><div className="ua-toggle-desc">برسوم التوصيل ورسوم القطع والوديعة غير المسددة</div></div>
                     <Form.Item name="issueInitialInvoice" valuePropName="checked" noStyle><Switch /></Form.Item>

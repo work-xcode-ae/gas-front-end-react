@@ -1,17 +1,29 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Segmented, Card, Space, DatePicker, Button, Table, Typography, Empty, Tag, Row, Col, Statistic, Checkbox, message } from 'antd';
+import { Segmented, Card, Space, DatePicker, Button, Table, Typography, Empty, Tag, Row, Col, Statistic, Checkbox, Select, message } from 'antd';
 import { PrinterOutlined, DownloadOutlined, SearchOutlined } from '@ant-design/icons';
 import dayjs, { type Dayjs } from 'dayjs';
 import { api, errorMessage } from '../../api/client';
 import { AccountSelect, ACCOUNT_TYPES, BranchSelect, DARK, GOLD, PRIMARY, PRINT_CSS, SOURCE_TYPES, downloadCsv, num, useAccounts } from './shared';
 
 const { Text } = Typography;
-type Kind = 'tb' | 'gl' | 'pl' | 'bs' | 'ap';
+type Kind = 'tb' | 'gl' | 'pl' | 'bs' | 'cf' | 'bp' | 'ap';
 const TITLES: Record<Kind, { ar: string; en: string }> = {
   tb: { ar: 'ميزان المراجعة', en: 'TRIAL BALANCE' }, gl: { ar: 'دفتر الأستاذ العام', en: 'GENERAL LEDGER' },
   pl: { ar: 'قائمة الدخل (الأرباح والخسائر)', en: 'PROFIT & LOSS' }, bs: { ar: 'الميزانية العمومية (المركز المالي)', en: 'BALANCE SHEET' },
+  cf: { ar: 'قائمة التدفقات النقدية', en: 'CASH FLOW STATEMENT' }, bp: { ar: 'ربحية المباني', en: 'PROFIT BY BUILDING' },
   ap: { ar: 'أعمار ديون الموردين', en: 'ACCOUNTS PAYABLE AGING' },
 };
+const CF_SECTIONS = { operating: 'الأنشطة التشغيلية', investing: 'الأنشطة الاستثمارية', financing: 'الأنشطة التمويلية' } as const;
+
+/** Building picker for the building profit report (empty = all buildings). */
+function BuildingFilter({ value, onChange }: { value?: number; onChange: (v?: number) => void }) {
+  const [opts, setOpts] = useState<{ value: number; label: string }[]>([]);
+  useEffect(() => {
+    api<any>('/buildings', { query: { pageSize: 0 } }).then(r => setOpts(r.items.map((b: any) => ({ value: b.id, label: `${b.code ?? ''} ${b.name ?? ''}`.trim() })))).catch(() => setOpts([]));
+  }, []);
+  return <Select allowClear showSearch optionFilterProp="label" placeholder="كل المباني" style={{ width: 220 }} value={value} onChange={v => onChange(v)} options={opts} />;
+}
+
 const neg = (v: number) => v < 0 ? <span style={{ color: '#cf1322' }}>({num(-v)})</span> : num(v);
 
 function Sheet({ kind, subtitle, children }: { kind: Kind; subtitle: string; children: ReactNode }) {
@@ -33,7 +45,11 @@ export default function Reports({ ledgerAccountId }: { ledgerAccountId?: number 
   const [branchId, setBranchId] = useState<number>();
   const [accountId, setAccountId] = useState<number | undefined>(ledgerAccountId);
   const [hideZero, setHideZero] = useState(true);
-  const [data, setData] = useState<any>(null);
+  const [bpBuilding, setBpBuilding] = useState<number>();
+  // the result is tagged with the report it belongs to: right after switching reports (or when an older request
+  // answers late) the previous report's data must never be rendered by the new report's layout
+  const [res, setRes] = useState<{ kind: string; data: any } | null>(null);
+  const data = res && res.kind === kind ? res.data : null;
   const [loading, setLoading] = useState(false);
   const accounts = useAccounts();
   const from = range[0].format('YYYY-MM-DD'), to = range[1].format('YYYY-MM-DD'), asOfS = asOf.format('YYYY-MM-DD');
@@ -41,14 +57,17 @@ export default function Reports({ ledgerAccountId }: { ledgerAccountId?: number 
   const run = (k = kind, acc = accountId) => {
     let path = '', query: any = { branchId };
     if (k === 'tb') { path = '/accounting/trial-balance'; query = { ...query, from, to }; }
-    if (k === 'gl') { if (!acc) { setData(null); return; } path = `/accounting/ledger/${acc}`; query = { ...query, from, to }; }
+    if (k === 'gl') { if (!acc) { setRes(null); return; } path = `/accounting/ledger/${acc}`; query = { ...query, from, to }; }
     if (k === 'pl') { path = '/accounting/profit-loss'; query = { ...query, from, to }; }
     if (k === 'bs') { path = '/accounting/balance-sheet'; query = { ...query, asOf: asOfS }; }
     if (k === 'ap') { path = '/accounting/ap-aging'; query = { ...query, asOf: asOfS }; }
+    if (k === 'cf') { path = '/accounting/cash-flow'; query = { ...query, from, to }; }
+    if (k === 'bp') { path = '/accounting/building-profit'; query = { ...query, from, to, buildingId: bpBuilding }; }
     setLoading(true);
-    api<any>(path, { query }).then(setData).catch(e => { setData(null); message.error(errorMessage(e)); }).finally(() => setLoading(false));
+    api<any>(path, { query }).then(d => setRes({ kind: k, data: d })).catch(e => { setRes(null); message.error(errorMessage(e)); }).finally(() => setLoading(false));
   };
-  useEffect(() => { setData(null); run(kind); }, [kind]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setRes(null); run(kind); }, [kind]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (kind === 'bp') run('bp'); }, [bpBuilding]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (ledgerAccountId) { setKind('gl'); setAccountId(ledgerAccountId); run('gl', ledgerAccountId); } }, [ledgerAccountId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const periodText = `من ${from} إلى ${to}`, asOfText = `كما في ${asOfS}`;
@@ -67,6 +86,12 @@ export default function Reports({ ledgerAccountId }: { ledgerAccountId?: number 
       [...['assets', 'liabilities', 'equity'].flatMap(s => data[s].rows.map((r: any) => [s === 'assets' ? 'أصول' : s === 'liabilities' ? 'خصوم' : 'حقوق ملكية', r.accountCode, r.account, r.balance])),
        ['حقوق ملكية', '', 'أرباح السنة الحالية', data.currentYearProfit], ['حقوق ملكية', '', 'أرباح سنوات سابقة (غير مرحلة)', data.priorYearsProfit],
        ['إجمالي الأصول', '', '', data.totals.assets], ['إجمالي الخصوم وحقوق الملكية', '', '', data.totals.liabilitiesAndEquity]]);
+    if (kind === 'cf') downloadCsv(`التدفقات-النقدية-${from}-${to}`, ['القسم', 'البند', 'المبلغ'],
+      [['', 'رصيد النقدية أول المدة', data.openingCash],
+       ...(['operating', 'investing', 'financing'] as const).flatMap(k => [...data[k].lines.map((l: any) => [CF_SECTIONS[k], l.label, l.amount]), [CF_SECTIONS[k], 'صافي', data[k].total]]),
+       ['', 'صافي التغير في النقدية', data.netChange], ['', 'رصيد النقدية آخر المدة', data.closingCash]]);
+    if (kind === 'bp') downloadCsv(`ربحية-المباني-${from}-${to}`, ['الرمز', 'المبنى', 'الإيرادات', 'المصروفات', 'الربح', 'الهامش %'],
+      data.buildings.map((b: any) => [b.code ?? '', b.building, b.revenue, b.expenses, b.profit, b.margin ?? '']));
     if (kind === 'ap') downloadCsv(`أعمار-الموردين-${asOfS}`, ['المورد', 'الرمز', 'غير مستحق', '1-30', '31-60', '61-90', '+90', 'الإجمالي'],
       data.vendors.map((v: any) => [v.vendor, v.vendorCode, v.current, v.d1_30, v.d31_60, v.d61_90, v.d90_plus, v.total]));
   };
@@ -175,6 +200,64 @@ export default function Reports({ ledgerAccountId }: { ledgerAccountId?: number 
       <Col xs={24} md={12}><div style={{ background: '#e8f5e9', padding: 10, borderRadius: 8, display: 'flex', justifyContent: 'space-between' }}><span>إجمالي الخصوم وحقوق الملكية</span><span>{num(data.totals.liabilitiesAndEquity)}</span></div></Col>
     </Row>
   </Sheet>;
+  if (data && kind === 'cf') {
+    const section = (k: 'operating' | 'investing' | 'financing') => (
+      <Table size="small" rowKey="key" pagination={false} dataSource={data[k].lines} title={() => <b style={{ color: PRIMARY }}>{CF_SECTIONS[k]}</b>}
+        locale={{ emptyText: 'لا توجد حركة' }}
+        columns={[{ title: 'البند', dataIndex: 'label' }, { title: 'المبلغ', dataIndex: 'amount', width: 160, render: neg }]}
+        summary={() => <Table.Summary.Row style={{ background: '#fafafa' }}>
+          <Table.Summary.Cell index={0}><b>صافي {CF_SECTIONS[k]}</b></Table.Summary.Cell>
+          <Table.Summary.Cell index={1}><b>{neg(data[k].total)}</b></Table.Summary.Cell>
+        </Table.Summary.Row>} />
+    );
+    const line = (label: string, v: number, strong = false) => (
+      <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: strong ? '#e8f5e9' : '#fafafa', borderRadius: 8, fontWeight: strong ? 800 : 600, marginBottom: 8 }}>
+        <span>{label}</span><span>{neg(v)}</span></div>);
+    body = <Sheet kind="cf" subtitle={`${periodText} · الطريقة المباشرة`}>
+      {!data.check.balanced && <Tag color="red" style={{ marginBottom: 8 }}>لا يطابق رصيد النقدية في الدفاتر: فرق {num(data.check.difference)}</Tag>}
+      {line('رصيد النقدية والبنوك أول المدة', data.openingCash)}
+      {section('operating')}<div style={{ height: 10 }} />{section('investing')}<div style={{ height: 10 }} />{section('financing')}
+      <div style={{ height: 12 }} />
+      {line('صافي التغير في النقدية', data.netChange)}
+      {line('رصيد النقدية والبنوك آخر المدة', data.closingCash, true)}
+      {Number(data.internalTransfers) > 0 && <Text type="secondary" style={{ fontSize: 12 }}>تحويلات داخلية بين الصندوق والبنوك (غير محسوبة): {num(data.internalTransfers)}</Text>}
+    </Sheet>;
+  }
+  if (data && kind === 'bp') {
+    body = <Sheet kind="bp" subtitle={periodText}>
+      <Row gutter={12} style={{ marginBottom: 12 }}>
+        <Col xs={8}><Card size="small"><Statistic title="الإيرادات" value={num(data.totals.revenue)} /></Card></Col>
+        <Col xs={8}><Card size="small"><Statistic title="المصروفات" value={num(data.totals.expenses)} /></Card></Col>
+        <Col xs={8}><Card size="small"><Statistic title="الربح" value={num(data.totals.profit)} valueStyle={{ color: data.totals.profit >= 0 ? PRIMARY : '#cf1322' }} /></Card></Col>
+      </Row>
+      <Table size="small" rowKey={(b: any) => b.buildingId ?? 0} pagination={false} dataSource={data.buildings} scroll={{ x: 700 }}
+        onRow={(b: any) => ({ style: { cursor: b.buildingId ? 'pointer' : undefined }, onClick: () => { if (b.buildingId) setBpBuilding(b.buildingId); } })}
+        columns={[
+          { title: 'المبنى', key: 'b', render: (_, b: any) => b.buildingId ? <span>{b.code && <Tag>{b.code}</Tag>} {b.building}</span> : <i style={{ color: '#888' }}>{b.building}</i> },
+          { title: 'الإيرادات', dataIndex: 'revenue', width: 140, render: num },
+          { title: 'المصروفات', dataIndex: 'expenses', width: 140, render: num },
+          { title: 'الربح', dataIndex: 'profit', width: 140, render: v => <b>{neg(v)}</b> },
+          { title: 'الهامش', dataIndex: 'margin', width: 90, render: v => v == null ? '—' : <Tag color={v >= 0 ? 'green' : 'red'}>{Number(v).toFixed(1)}%</Tag> },
+        ]}
+        summary={() => <Table.Summary.Row style={{ background: '#fafafa' }}>
+          <Table.Summary.Cell index={0}><b>{bpBuilding ? 'الإجمالي' : 'الإجمالي (= قائمة الدخل)'}</b></Table.Summary.Cell>
+          <Table.Summary.Cell index={1}><b>{num(data.totals.revenue)}</b></Table.Summary.Cell>
+          <Table.Summary.Cell index={2}><b>{num(data.totals.expenses)}</b></Table.Summary.Cell>
+          <Table.Summary.Cell index={3} colSpan={2}><b style={{ color: PRIMARY }}>{neg(data.totals.profit)}</b></Table.Summary.Cell>
+        </Table.Summary.Row>} />
+      {data.accounts && <>
+        <div style={{ height: 12 }} />
+        <Table size="small" rowKey="accountId" pagination={false} dataSource={data.accounts} title={() => <b style={{ color: PRIMARY }}>الحسابات</b>}
+          columns={[{ title: 'الحساب', key: 'a', render: (_, r: any) => <span><Text style={{ fontFamily: 'monospace' }}>{r.accountCode}</Text> {r.account}</span> },
+            { title: 'النوع', dataIndex: 'type', width: 100, render: t => <Tag color={t === 'revenue' ? 'green' : 'orange'}>{t === 'revenue' ? 'إيراد' : 'مصروف'}</Tag> },
+            { title: 'المبلغ', dataIndex: 'amount', width: 150, render: num }]} />
+        <div style={{ height: 12 }} />
+        <Table size="small" rowKey="month" pagination={false} dataSource={data.months} title={() => <b style={{ color: PRIMARY }}>حسب الشهر</b>}
+          columns={[{ title: 'الشهر', dataIndex: 'month' }, { title: 'الإيرادات', dataIndex: 'revenue', render: num },
+            { title: 'المصروفات', dataIndex: 'expenses', render: num }, { title: 'الربح', dataIndex: 'profit', render: neg }]} />
+      </>}
+    </Sheet>;
+  }
   if (data && kind === 'ap') {
     const bucket = (f: string) => ({ title: f === 'current' ? 'غير مستحق' : f === 'd90_plus' ? '+90' : f.slice(1).replace('_', '-'), dataIndex: f, width: 110, render: (v: number) => Number(v) ? num(v) : '' });
     body = <Sheet kind="ap" subtitle={`${asOfText} · حسب تاريخ الاستحقاق`}>
@@ -188,11 +271,15 @@ export default function Reports({ ledgerAccountId }: { ledgerAccountId?: number 
           { title: 'عدد', dataIndex: 'count', width: 60 },
           bucket('current'), bucket('d1_30'), bucket('d31_60'), bucket('d61_90'), bucket('d90_plus'),
           { title: 'الإجمالي', dataIndex: 'total', width: 130, render: v => <b>{num(v)}</b> },
+          { title: 'دفعات مقدمة', dataIndex: 'advance', width: 120, render: v => Number(v) ? <span style={{ color: '#389e0d' }}>({num(v)})</span> : '' },
+          { title: 'الصافي المستحق', dataIndex: 'net', width: 130, render: v => <b>{neg(Number(v ?? 0))}</b> },
         ]}
         summary={() => <Table.Summary.Row style={{ background: '#fafafa' }}>
           <Table.Summary.Cell index={0} colSpan={3}><b>الإجمالي</b></Table.Summary.Cell>
           {['current', 'd1_30', 'd31_60', 'd61_90', 'd90_plus'].map((f, i) => <Table.Summary.Cell key={f} index={3 + i}><b>{num(data.totals[f])}</b></Table.Summary.Cell>)}
-          <Table.Summary.Cell index={8}><b style={{ color: PRIMARY }}>{num(data.total)}</b></Table.Summary.Cell>
+          <Table.Summary.Cell index={8}><b>{num(data.total)}</b></Table.Summary.Cell>
+          <Table.Summary.Cell index={9}><b style={{ color: '#389e0d' }}>{Number(data.totals.advance) ? `(${num(data.totals.advance)})` : ''}</b></Table.Summary.Cell>
+          <Table.Summary.Cell index={10}><b style={{ color: PRIMARY }}>{neg(Number(data.totals.net ?? data.total))}</b></Table.Summary.Cell>
         </Table.Summary.Row>} />
     </Sheet>;
   }
@@ -209,6 +296,7 @@ export default function Reports({ ledgerAccountId }: { ledgerAccountId?: number 
               : <DatePicker.RangePicker value={range} onChange={r => r && setRange(r as [Dayjs, Dayjs])} allowClear={false} />}
             {kind === 'gl' && <AccountSelect accounts={accounts} value={accountId} onChange={(v: any) => setAccountId(v)} style={{ width: 300 }} placeholder="اختر الحساب…" />}
             <BranchSelect allowClear placeholder="كل الفروع" style={{ width: 180 }} value={branchId} onChange={(v: any) => setBranchId(v)} />
+            {kind === 'bp' && <BuildingFilter value={bpBuilding} onChange={setBpBuilding} />}
             {kind === 'tb' && <Checkbox checked={hideZero} onChange={e => setHideZero(e.target.checked)}>إخفاء الأرصدة الصفرية</Checkbox>}
             <Button type="primary" icon={<SearchOutlined />} loading={loading} onClick={() => run()}>عرض</Button>
             <Button icon={<PrinterOutlined />} disabled={!data} onClick={() => window.print()}>طباعة / PDF</Button>

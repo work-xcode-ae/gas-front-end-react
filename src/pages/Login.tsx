@@ -5,6 +5,7 @@ import { LockOutlined, MailOutlined, FireOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../auth/AuthContext';
 import { errorMessage } from '../api/client';
+import { useBranding, appName, brandingFileUrl } from '../api/branding';
 
 const { Title, Text } = Typography;
 const PRIMARY = '#1a5c2a';
@@ -13,6 +14,8 @@ const LoginPage: React.FC = () => {
   const { i18n } = useTranslation();
   const isAr = i18n.language === 'ar';
   const { user, login } = useAuth();
+  const branding = useBranding();
+  const logoUrl = brandingFileUrl(branding?.logoPath);
   const navigate = useNavigate();
   const location = useLocation();
   const [error, setError] = useState<string | null>(null);
@@ -39,11 +42,13 @@ const LoginPage: React.FC = () => {
       background: `linear-gradient(135deg, #0b2e18 0%, ${PRIMARY} 60%, #2e7d32 100%)`, direction: isAr ? 'rtl' : 'ltr' }}>
       <Card style={{ width: '100%', maxWidth: 400, borderRadius: 16, boxShadow: '0 12px 40px rgba(0,0,0,0.25)' }} styles={{ body: { padding: 32 } }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ width: 56, height: 56, borderRadius: 14, background: '#e8f5e9', color: PRIMARY, fontSize: 26,
-            display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
-            <FireOutlined />
-          </div>
-          <Title level={4} style={{ margin: 0, color: PRIMARY }}>{isAr ? 'سدرة للبترول' : 'Sedra Petrol'}</Title>
+          {logoUrl
+            ? <img src={logoUrl} alt={appName(branding, 'en')} style={{ maxWidth: 160, maxHeight: 80, objectFit: 'contain', marginBottom: 12 }} />
+            : <div style={{ width: 56, height: 56, borderRadius: 14, background: '#e8f5e9', color: PRIMARY, fontSize: 26,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+                <FireOutlined />
+              </div>}
+          <Title level={4} style={{ margin: 0, color: PRIMARY }}>{appName(branding, i18n.language)}</Title>
           <Text type="secondary">{isAr ? 'تسجيل الدخول إلى البوابة' : 'Sign in to the portal'}</Text>
         </div>
 

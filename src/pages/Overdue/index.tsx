@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Card, Row, Col, Table, Tag, Button, Typography, Space, Segmented, Select, Input, Modal, Form, InputNumber, DatePicker, message, Statistic, Empty } from 'antd';
+import { Card, Row, Col, Table, Tag, Button, Typography, Space, Segmented, Select, Input, Modal, Form, InputNumber, DatePicker, message, Statistic, Empty, Tooltip, Alert } from 'antd';
 import { WarningOutlined, DollarOutlined, DownloadOutlined, ReloadOutlined, TeamOutlined, BankOutlined, FileTextOutlined } from '@ant-design/icons';
 import ReactApexChart from 'react-apexcharts';
 import dayjs from 'dayjs';
 import { api, errorMessage, type Paged } from '../../api/client';
+import { postReceipt } from '../../api/receipts';
 import { useAuth } from '../../auth/AuthContext';
 import { useGlobalFilters } from '../../context/GlobalFilters';
 
@@ -26,7 +27,7 @@ const METHODS = [
 
 interface Inv {
   id: number; invoiceNo: string; tenantId: number; customer?: string; buildingId?: number; buildingCode?: string; building?: string; contractNo?: string; unit?: string;
-  date: string; dueDate: string; typeLabel?: string; amount: number; paid: number; balance: number; status: string;
+  date: string; dueDate: string; typeLabel?: string; amount: number; paid: number; balance: number; status: string; credited?: number;
 }
 
 const OverduePage: React.FC = () => {
@@ -34,6 +35,8 @@ const OverduePage: React.FC = () => {
   const canPay = can('payments.manage');
   const { branchId } = useGlobalFilters();
   const [rows, setRows] = useState<Inv[]>([]);
+  // unallocated customer credit (receipts / credit notes not applied to any invoice) from the aging report — the net owed is invoices − credit
+  const [credits, setCredits] = useState<Map<number, number>>(new Map());
   const [loading, setLoading] = useState(true);
   const [key, setKey] = useState(0);
   const [view, setView] = useState<'invoices' | 'customers' | 'buildings'>('invoices');
@@ -51,6 +54,9 @@ const OverduePage: React.FC = () => {
       .then(r => setRows(r.items.filter(i => Number(i.balance) > 0)))
       .catch(e => message.error(errorMessage(e)))
       .finally(() => setLoading(false));
+    api<any>('/reports/aging', { query: { branchId } })
+      .then(a => setCredits(new Map((a.rows ?? []).filter((x: any) => Number(x.credit) > 0).map((x: any) => [Number(x.tenantId), Number(x.credit)]))))
+      .catch(() => setCredits(new Map()));
   }, [branchId]);
   useEffect(() => { load(); }, [load, key]);
 
@@ -65,6 +71,9 @@ const OverduePage: React.FC = () => {
     (!search || `${r.invoiceNo} ${r.customer ?? ''} ${r.unit ?? ''} ${r.contractNo ?? ''}`.toLowerCase().includes(search.toLowerCase())));
 
   const total = filtered.reduce((s, r) => s + Number(r.balance), 0);
+  const lateTenants = [...new Set(enriched.map(r => r.tenantId))];
+  const lateCredit = lateTenants.reduce((s, t) => s + (credits.get(t) ?? 0), 0);
+  const allLate = enriched.reduce((s, r) => s + Number(r.balance), 0);
   const byBucket = BUCKETS.map(b => {
     const list = enriched.filter(r => bucketOf(r.days).key === b.key && (!buildingId || r.buildingId === buildingId));
     return { ...b, count: list.length, amount: list.reduce((s, r) => s + Number(r.balance), 0) };
@@ -88,7 +97,7 @@ const OverduePage: React.FC = () => {
     const v = await form.validateFields();
     setSaving(true);
     try {
-      const r = await api<any>('/payments', { method: 'POST', body: {
+      const r = await postReceipt<any>({ method: 'POST', body: {
         tenantId: payInv.tenantId, invoiceId: payInv.id, amount: v.amount, date: v.date.format('YYYY-MM-DD'), method: v.method, reference: v.reference || null, notes: v.notes || null,
       } });
       message.success(`تم تسجيل الدفعة${r?.receiptNo ? ` — سند ${r.receiptNo}` : ''}`);
@@ -127,6 +136,12 @@ const OverduePage: React.FC = () => {
         <Statistic value={enriched.reduce((s, r) => s + Number(r.balance), 0)} precision={2} valueStyle={{ color: '#fff', fontWeight: 700 }} suffix={<span style={{ fontSize: 13 }}>د.إ</span>}
           title={<span style={{ color: 'rgba(255,255,255,.75)' }}>إجمالي المتأخرات ({enriched.length} فاتورة · {new Set(enriched.map(r => r.tenantId)).size} عميل)</span>} />
       </div>
+
+      {lateCredit > 0 && (
+        <Alert type="success" showIcon style={{ marginBottom: 14, borderRadius: 10 }}
+          message={<span>لدى {lateTenants.filter(t => credits.has(t)).length} من العملاء المتأخرين رصيد دائن غير مخصص بقيمة <b>{money(lateCredit)} د.إ</b> (دفعات أو إشعارات دائنة لم تُطبَّق على فواتير) —
+            صافي المتأخرات بعده <b>{money(Math.max(0, allLate - lateCredit))} د.إ</b>. طبّق الرصيد على الفواتير من صفحة العميل.</span>} />
+      )}
 
       <Row gutter={[12, 12]} style={{ marginBottom: 14 }}>
         {byBucket.map(b => (
@@ -182,20 +197,25 @@ const OverduePage: React.FC = () => {
             locale={{ emptyText: <Empty description="لا توجد فواتير متأخرة 🎉" /> }}
             columns={[
               { title: 'رقم الفاتورة', dataIndex: 'invoiceNo', render: (v, r) => <div><Text style={{ fontFamily: 'monospace', fontSize: 12, color: PRIMARY }}>{v}</Text><div style={{ fontSize: 11, color: '#888' }}>{r.typeLabel}</div></div> },
-              { title: 'العميل', dataIndex: 'customer', render: (v, r) => <div>{v}{r.unit && <div style={{ fontSize: 11, color: '#888' }}>{r.buildingCode} · وحدة {r.unit}</div>}</div> },
+              { title: 'العميل', dataIndex: 'customer', render: (v, r) => <div>{v}{r.unit && <div style={{ fontSize: 11, color: '#888' }}>{r.buildingCode} · وحدة {r.unit}</div>}
+                {credits.get(r.tenantId) ? <Tooltip title="دفعات أو إشعارات دائنة لم تُطبَّق على فواتير — يمكن تطبيقها على هذه الفاتورة"><Tag color="green" style={{ marginTop: 2 }}>رصيد دائن {money(credits.get(r.tenantId))}</Tag></Tooltip> : null}</div> },
               { title: 'المبنى', dataIndex: 'building', responsive: ['lg'] },
               { title: 'التاريخ', dataIndex: 'date', width: 100 },
               { title: 'الاستحقاق', dataIndex: 'dueDate', width: 100, sorter: (a, b) => a.dueDate.localeCompare(b.dueDate) },
               { title: 'التأخير', dataIndex: 'days', width: 110, sorter: (a, b) => a.days - b.days, defaultSortOrder: 'descend',
                 render: (v: number) => <Tag color={bucketOf(v).color}>{v} يوم</Tag> },
               { title: 'الإجمالي', dataIndex: 'amount', align: 'end', render: v => money(v) },
-              { title: 'المدفوع', dataIndex: 'paid', align: 'end', render: v => <span style={{ color: '#52c41a' }}>{money(v)}</span> },
+              { title: 'المدفوع / المُشعَر', dataIndex: 'paid', align: 'end', render: (v, r) => <div><span style={{ color: '#52c41a' }}>{money(v)}</span>
+                {Number(r.credited ?? 0) > 0 && <div style={{ fontSize: 11, color: '#888' }}>منها إشعار دائن {money(r.credited)}</div>}</div> },
               { title: 'المتبقي', dataIndex: 'balance', align: 'end', sorter: (a, b) => a.balance - b.balance, render: v => <Text strong style={{ color: '#d4380d' }}>{money(v)}</Text> },
               ...(canPay ? [{ title: '', key: 'pay', width: 110, render: (_: any, r: Inv) => <Button size="small" type="primary" icon={<DollarOutlined />} onClick={() => openPay(r)}>تسجيل دفعة</Button> }] : []),
             ]} />
         )}
         {view === 'customers' && (
-          <Table size="small" rowKey="key" loading={loading} dataSource={byCustomer} columns={groupColumns('العميل')} scroll={{ x: 900 }} pagination={{ pageSize: 20 }}
+          <Table size="small" rowKey="key" loading={loading} dataSource={byCustomer} scroll={{ x: 1100 }} pagination={{ pageSize: 20 }}
+            columns={[...groupColumns('العميل'),
+              { title: 'رصيد دائن غير مخصص', key: 'credit', align: 'end' as const, render: (_: any, g: any) => credits.get(Number(g.key)) ? <span style={{ color: '#389e0d' }}>({money(credits.get(Number(g.key)))})</span> : '—' },
+              { title: 'الصافي', key: 'net', align: 'end' as const, render: (_: any, g: any) => <Text strong>{money(Math.max(0, g.total - (credits.get(Number(g.key)) ?? 0)))}</Text> }]}
             expandable={{ expandedRowRender: g => (
               <Table size="small" rowKey="id" pagination={false} dataSource={filtered.filter(r => String(r.tenantId) === g.key)}
                 columns={[{ title: 'الفاتورة', dataIndex: 'invoiceNo' }, { title: 'المبنى / الوحدة', render: (_: any, r: any) => `${r.buildingCode ?? ''} ${r.unit ? `· ${r.unit}` : ''}` },

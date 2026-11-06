@@ -8,6 +8,7 @@ import {
   PlusOutlined, EditOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import { API_BASE, api, apiUpload, errorMessage, type Paged } from '../../api/client';
+import { refreshBranding } from '../../api/branding';
 import { clearReferenceCache, locName, useReference } from '../../api/reference';
 import { useAuth } from '../../auth/AuthContext';
 import LookupListSettings from './LookupListSettings';
@@ -38,13 +39,13 @@ function CompanySection({ canManage }: { canManage: boolean }) {
     try {
       if (company) await api(`/companies/${company.id}`, { method: 'PUT', body: { ...company, ...v } });
       else await api('/companies', { method: 'POST', body: { ...v, isActive: true } });
-      message.success('تم حفظ بيانات الشركة'); load();
+      message.success('تم حفظ بيانات الشركة'); load(); refreshBranding();
     } catch (e) { message.error(errorMessage(e), 6); } finally { setSaving(false); }
   };
   const upload = async (kind: 'logo' | 'logo_dark' | 'stamp' | 'letterhead', file: File) => {
     if (!company) { message.warning('احفظ بيانات الشركة أولاً'); return; }
     const fd = new FormData(); fd.append('file', file);
-    try { await apiUpload(`/companies/${company.id}/branding/${kind}`, fd); message.success('تم رفع الصورة'); load(); }
+    try { await apiUpload(`/companies/${company.id}/branding/${kind}`, fd); message.success('تم رفع الصورة'); load(); refreshBranding(); }
     catch (e) { message.error(errorMessage(e), 6); }
   };
   const img = (path?: string | null) => (path ? `${API_BASE}/files/${path}` : undefined);
@@ -86,7 +87,7 @@ function CompanySection({ canManage }: { canManage: boolean }) {
       </Col>
       <Col xs={24} lg={9}>
         <Card size="small" bordered={false} style={{ borderRadius: 10 }} title={<Text strong>الهوية والختم</Text>}>
-          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 10 }}>تظهر على صفحة الدخول والفواتير المطبوعة.</Text>
+          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 10 }}>الشعار واسم الشركة يظهران في رأس النظام وأيقونة المتصفح وصفحة الدخول والفواتير المطبوعة.</Text>
           {([['logo', 'الشعار', company?.logoPath], ['logo_dark', 'الشعار (خلفية داكنة)', company?.logoDarkPath], ['stamp', 'الختم', company?.stampPath], ['letterhead', 'ورق الفاتورة الرسمي (صورة A4 كاملة)', company?.letterheadPath]] as const).map(([kind, label, path]) => (
             <div key={kind} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px dashed #f0f0f0' }}>
               <div style={{ width: 90, height: 60, borderRadius: 8, background: kind === 'logo_dark' ? '#0b2e18' : '#fafafa', border: '1px solid #f0f0f0',

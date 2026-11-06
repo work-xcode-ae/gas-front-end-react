@@ -36,17 +36,67 @@ const STATUS: Record<string, { color: string; label: string }> = {
 };
 const TITLE: Record<VoucherType, string> = { receipt: 'سند قبض', payment: 'سند صرف' };
 
+// ═══════════════════════════ apply a supplier advance to open bills ═══════════════════════════
+/** The free (unallocated) part of a supplier payment is applied to open bills of that supplier, oldest due first by default. */
+function ApplyAdvanceModal({ open, paymentId, vendorId, free, onClose, onDone }: { open: boolean; paymentId: number; vendorId: number; free: number; onClose: () => void; onDone: () => void }) {
+  const [bills, setBills] = useState<any[]>([]);
+  const [amounts, setAmounts] = useState<Record<number, number | null>>({});
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!open) return;
+    api<Paged<any>>('/vendor-bills', { query: { vendorId, openOnly: true, pageSize: 0 } }).then(r => {
+      const list = r.items.filter((b: any) => Number(b.balance) > 0).sort((a: any, b: any) => String(a.dueDate ?? a.billDate).localeCompare(String(b.dueDate ?? b.billDate)));
+      let left = free; const init: Record<number, number | null> = {};
+      list.forEach((b: any) => { const a = Math.min(left, Number(b.balance)); init[b.id] = a > 0 ? Math.round(a * 100) / 100 : null; left -= Math.max(0, a); });
+      setBills(list); setAmounts(init);
+    }).catch(e => message.error(errorMessage(e)));
+  }, [open, vendorId, free]);
+  const total = Object.values(amounts).reduce((s: number, v) => s + Number(v ?? 0), 0);
+  const save = async () => {
+    const allocations = Object.entries(amounts).filter(([, v]) => Number(v ?? 0) > 0).map(([id, v]) => ({ vendorBillId: Number(id), amount: Number(v) }));
+    if (!allocations.length) { message.warning('أدخل المبلغ المطبق على فاتورة واحدة على الأقل'); return; }
+    if (total > free + 0.001) { message.warning(`المجموع أكبر من الرصيد المتاح (${money(free)})`); return; }
+    setBusy(true);
+    try {
+      const r = await api<any>(`/vendor-payments/${paymentId}/allocate`, { body: allocations });
+      message.success(`تم تطبيق ${money(r.allocated)} على فواتير المورد — المتبقي ${money(r.remaining)}`);
+      onDone();
+    } catch (e) { message.error(errorMessage(e), 8); } finally { setBusy(false); }
+  };
+  return (
+    <Modal open={open} width={720} title="تطبيق الدفعة المقدمة على فواتير المورد" okText="تطبيق" cancelText="إلغاء" onOk={save} confirmLoading={busy} onCancel={onClose} destroyOnHidden>
+      <Alert type="info" showIcon style={{ marginBottom: 12 }} message={<span>الرصيد غير المخصص من هذا السند: <b>{money(free)} د.إ</b> — لا يُنشأ قيد جديد، يُربط المبلغ بالفواتير فقط.</span>} />
+      {bills.length === 0 ? <Empty description="لا توجد فواتير مفتوحة لهذا المورد" /> : (
+        <Table size="small" rowKey="id" pagination={false} dataSource={bills}
+          columns={[
+            { title: 'الفاتورة', dataIndex: 'billNo', render: (v: string) => <span style={{ fontFamily: 'monospace' }}>{v}</span> },
+            { title: 'التاريخ', dataIndex: 'billDate' }, { title: 'الاستحقاق', dataIndex: 'dueDate' },
+            { title: 'المتبقي', dataIndex: 'balance', align: 'end' as const, render: (v: number) => money(v) },
+            { title: 'المبلغ المطبق', key: 'a', width: 150, render: (_: any, b: any) => <InputNumber size="small" min={0} max={Number(b.balance)} style={{ width: '100%' }}
+                value={amounts[b.id] ?? null} onChange={v => setAmounts(a => ({ ...a, [b.id]: v == null ? null : Number(v) }))} /> },
+          ]}
+          summary={() => <Table.Summary.Row style={{ background: '#fafafa' }}>
+            <Table.Summary.Cell index={0} colSpan={4}><b>المجموع</b></Table.Summary.Cell>
+            <Table.Summary.Cell index={1}><b style={{ color: total > free + 0.001 ? '#ff4d4f' : PRIMARY }}>{money(total)}</b></Table.Summary.Cell>
+          </Table.Summary.Row>} />
+      )}
+    </Modal>
+  );
+}
+
 // ═══════════════════════════ printable voucher ═══════════════════════════
 export function VoucherDrawer({ party, id, onClose, onChanged }: { party: Party | null; id: number | null; onClose: () => void; onChanged: () => void }) {
   const [v, setV] = useState<any>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
+  const [applyOpen, setApplyOpen] = useState(false);
+  const [reload, setReload] = useState(0);
   const { can } = useAuth();
   useEffect(() => {
     if (!party || !id) { setV(null); return; }
     api<any>(`/vouchers/${party}/${id}`).then(setV).catch(e => message.error(errorMessage(e)));
-  }, [party, id]);
+  }, [party, id, reload]);
 
   const cancel = async () => {
     if (!reason.trim()) { message.warning('اكتب سبب الإلغاء'); return; }
@@ -69,6 +119,8 @@ export function VoucherDrawer({ party, id, onClose, onChanged }: { party: Party 
       extra={v && <Space className="no-print">
         <HistoryButton entityType={party === 'customer' ? 'Payment' : party === 'supplier' ? 'VendorPayment' : 'Voucher'} id={id} title={`${TITLE[v.type as VoucherType]} ${v.no}`} size="middle" />
         <Button icon={<PrinterOutlined />} onClick={() => window.print()}>طباعة / PDF</Button>
+        {party === 'supplier' && !cancelled && Number(v.unallocated ?? 0) > 0 && can('payables.manage') &&
+          <Button type="primary" onClick={() => setApplyOpen(true)}>تطبيق الدفعة المقدمة ({money(v.unallocated)})</Button>}
         {!cancelled && canCancel && <Button danger icon={<StopOutlined />} onClick={() => setCancelOpen(true)}>إلغاء السند</Button>}
       </Space>}>
       <style>{PRINT_CSS}</style>
@@ -130,6 +182,10 @@ export function VoucherDrawer({ party, id, onClose, onChanged }: { party: Party 
           </div>
           {v.by && <div style={{ fontSize: 11, color: '#999', marginTop: 12 }}>أُنشئ بواسطة: {v.by}</div>}
         </div>
+      )}
+      {party === 'supplier' && v?.partyId && id && (
+        <ApplyAdvanceModal open={applyOpen} paymentId={id} vendorId={v.partyId} free={Number(v.unallocated ?? 0)} onClose={() => setApplyOpen(false)}
+          onDone={() => { setApplyOpen(false); setReload(x => x + 1); onChanged(); }} />
       )}
       <Modal open={cancelOpen} title="إلغاء السند" okText="إلغاء السند" okButtonProps={{ danger: true }} cancelText="رجوع" confirmLoading={busy} onOk={cancel} onCancel={() => setCancelOpen(false)}>
         <Alert type="warning" showIcon style={{ marginBottom: 12 }} message="سيُعكس القيد المحاسبي للسند، ويُعاد فتح الفواتير المسددة به إن وجدت." />

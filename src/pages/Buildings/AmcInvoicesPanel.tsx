@@ -3,6 +3,7 @@ import { Table, Tag, Button, Tooltip, Modal, Form, InputNumber, DatePicker, Sele
 import { FileDoneOutlined, DollarOutlined, ClockCircleOutlined, WarningOutlined, CheckCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { api, errorMessage } from '../../api/client';
+import { postReceipt } from '../../api/receipts';
 
 const { Text } = Typography;
 
@@ -72,7 +73,7 @@ export default function AmcInvoicesPanel({ contractId, schedule, onChanged }: Pr
     const v = await payForm.validateFields();
     setBusy(`p${payLine.id}`);
     try {
-      await api('/payments', {
+      await postReceipt({
         method: 'POST', body: {
           tenantId: payLine.customerId, invoiceId: payLine.invoiceId, amount: v.amount, date: v.date.format('YYYY-MM-DD'),
           method: v.method, reference: v.reference || null, notes: v.notes || null,

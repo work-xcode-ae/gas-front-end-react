@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Card, Row, Col, Select, DatePicker, Button, Table, Typography, Space, Segmented, Empty, Statistic, message, Tag, Spin } from 'antd';
 import {
   BarChartOutlined, FireOutlined, DollarOutlined, WarningOutlined, HomeOutlined, DatabaseOutlined, ShopOutlined, PercentageOutlined,
-  DownloadOutlined, PrinterOutlined, ReloadOutlined, DashboardOutlined,
+  DownloadOutlined, PrinterOutlined, ReloadOutlined, DashboardOutlined, InboxOutlined,
 } from '@ant-design/icons';
 import ReactApexChart from 'react-apexcharts';
 import dayjs, { type Dayjs } from 'dayjs';
@@ -17,7 +17,7 @@ const GOLD = '#c9a84c';
 const n0 = (v?: number) => Number(v ?? 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
 const n2 = (v?: number) => Number(v ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-type ReportKey = 'consumption' | 'collections' | 'aging' | 'occupancy' | 'meters' | 'refills' | 'vendor-balances' | 'vat';
+type ReportKey = 'consumption' | 'collections' | 'aging' | 'occupancy' | 'meters' | 'meter-stock' | 'refills' | 'vendor-balances' | 'vat';
 interface Col { key: string; title: string; money?: boolean; num?: boolean; render?: (r: any) => React.ReactNode; csv?: (r: any) => string | number }
 
 const REPORTS: { key: ReportKey; title: string; icon: React.ReactNode; desc: string; dates?: boolean; building?: boolean; groups?: { value: string; label: string }[] }[] = [
@@ -29,6 +29,7 @@ const REPORTS: { key: ReportKey; title: string; icon: React.ReactNode; desc: str
   { key: 'occupancy', title: 'الإشغال', icon: <HomeOutlined />, desc: 'الوحدات المشغولة والشاغرة لكل مبنى' },
   { key: 'meters', title: 'حالة العدادات', icon: <DashboardOutlined />, desc: 'العدادات حسب الحالة (سليم، عطل، تالف…) وصلاحية المعايرة لكل مبنى', building: true,
     groups: [{ value: 'building', label: 'حسب المبنى' }, { value: 'list', label: 'قائمة العدادات' }, { value: 'attention', label: 'تحتاج متابعة' }] },
+  { key: 'meter-stock', title: 'مخزون العدادات', icon: <InboxOutlined />, desc: 'قيمة العدادات في المخزون والمركّبة حسب الموديل، ومطابقتها مع حساب المخزون' },
   { key: 'refills', title: 'تعبئة الخزانات', icon: <DatabaseOutlined />, desc: 'الكميات المسلّمة وتكلفة الشراء لكل مبنى', dates: true },
   { key: 'vendor-balances', title: 'أرصدة الموردين', icon: <ShopOutlined />, desc: 'المفوتر والمدفوع والمستحق لكل مورد' },
   { key: 'vat', title: 'ضريبة القيمة المضافة', icon: <PercentageOutlined />, desc: 'ضريبة المخرجات مقابل المدخلات للفترة', dates: true },
@@ -68,9 +69,12 @@ function shape(key: ReportKey, groupBy: string, data: any): { rows: any[]; cols:
       return {
         rows,
         cols: [{ key: 'tenant', title: 'العميل' }, { key: 'phone', title: 'الهاتف' }, { key: 'current', title: 'غير مستحق بعد', money: true }, { key: 'd30', title: '1-30 يوم', money: true },
-          { key: 'd60', title: '31-60 يوم', money: true }, { key: 'd90', title: '61-90 يوم', money: true }, { key: 'over90', title: 'أكثر من 90', money: true }, { key: 'total', title: 'الإجمالي', money: true }],
-        totals: [{ label: 'الإجمالي المستحق', value: t.total, money: true, color: '#d4380d' }, { label: '1-30 يوم', value: t.d30, money: true }, { label: '31-60 يوم', value: t.d60, money: true },
-          { label: '61-90 يوم', value: t.d90, money: true }, { label: 'أكثر من 90 يوم', value: t.over90, money: true, color: '#ff4d4f' }],
+          { key: 'd60', title: '31-60 يوم', money: true }, { key: 'd90', title: '61-90 يوم', money: true }, { key: 'over90', title: 'أكثر من 90', money: true }, { key: 'total', title: 'إجمالي الفواتير', money: true },
+          { key: 'credit', title: 'رصيد دائن غير مخصص', money: true, render: r => (Number(r.credit ?? 0) ? <span style={{ color: '#389e0d' }}>({n2(r.credit)})</span> : '—'), csv: r => -Number(r.credit ?? 0) },
+          { key: 'net', title: 'الصافي المستحق', money: true, render: r => <b style={{ color: Number(r.net) < 0 ? '#389e0d' : undefined }}>{n2(r.net)}</b>, csv: r => r.net }],
+        totals: [{ label: 'إجمالي الفواتير المستحقة', value: t.total, money: true, color: '#d4380d' }, { label: '1-30 يوم', value: t.d30, money: true }, { label: '31-60 يوم', value: t.d60, money: true },
+          { label: '61-90 يوم', value: t.d90, money: true }, { label: 'أكثر من 90 يوم', value: t.over90, money: true, color: '#ff4d4f' },
+          { label: 'دفعات / إشعارات دائنة غير مخصصة', value: t.credit, money: true, color: '#389e0d' }, { label: 'الصافي (= حساب العملاء)', value: t.net, money: true, color: PRIMARY }],
         chart: { labels: ['غير مستحق', '1-30', '31-60', '61-90', '+90'], series: [{ name: 'المبلغ', data: [t.current, t.d30, t.d60, t.d90, t.over90].map(Number) }], type: 'bar' },
       };
     }
@@ -129,9 +133,33 @@ function shape(key: ReportKey, groupBy: string, data: any): { rows: any[]; cols:
       const sum = (f: string) => rows.reduce((s: number, r: any) => s + Number(r[f] ?? 0), 0);
       return {
         rows,
-        cols: [{ key: 'vendor', title: 'المورد' }, { key: 'billed', title: 'المفوتر', money: true }, { key: 'paid', title: 'المدفوع', money: true }, { key: 'outstanding', title: 'المستحق', money: true }],
-        totals: [{ label: 'المفوتر', value: sum('billed'), money: true }, { label: 'المدفوع', value: sum('paid'), money: true, color: '#52c41a' }, { label: 'المستحق', value: sum('outstanding'), money: true, color: '#d4380d' }],
+        cols: [{ key: 'vendor', title: 'المورد' }, { key: 'billed', title: 'المفوتر', money: true }, { key: 'paid', title: 'المدفوع', money: true },
+          { key: 'advance', title: 'دفعات مقدمة غير مخصصة', money: true, render: r => (Number(r.advance ?? 0) ? <span style={{ color: '#389e0d' }}>({n2(r.advance)})</span> : '—'), csv: r => -Number(r.advance ?? 0) },
+          { key: 'outstanding', title: 'الصافي المستحق', money: true }],
+        totals: [{ label: 'المفوتر', value: sum('billed'), money: true }, { label: 'المدفوع', value: sum('paid'), money: true, color: '#52c41a' },
+          { label: 'دفعات مقدمة', value: sum('advance'), money: true, color: '#389e0d' }, { label: 'الصافي المستحق (= حساب الموردين)', value: sum('outstanding'), money: true, color: '#d4380d' }],
         chart: { labels: rows.slice(0, 15).map((r: any) => r.vendor), series: [{ name: 'المستحق', data: rows.slice(0, 15).map((r: any) => Number(r.outstanding)) }], type: 'bar' },
+      };
+    }
+    case 'meter-stock': {
+      const rows = data.byModel ?? [];
+      const loc = (l: string) => (data.byLocation ?? []).find((x: any) => x.location === l) ?? { count: 0, value: 0 };
+      const lg = data.ledger ?? {};
+      return {
+        rows,
+        cols: [{ key: 'brand', title: 'الشركة المصنعة', render: r => r.brand ?? '—', csv: r => r.brand ?? '' }, { key: 'model', title: 'الموديل', render: r => r.model ?? '—', csv: r => r.model ?? '' },
+          { key: 'total', title: 'العدادات', num: true }, { key: 'inStock', title: 'في المخزون', num: true }, { key: 'installed', title: 'مركّبة', num: true },
+          { key: 'stockValue', title: 'قيمة المخزون', money: true }, { key: 'installedValue', title: 'قيمة المركّبة', money: true }],
+        totals: [
+          { label: `في المخزون (${loc('stock').count})`, value: loc('stock').value, money: true },
+          { label: `مركّبة (${loc('installed').count})`, value: loc('installed').value, money: true, color: '#1677ff' },
+          { label: `مشطوبة (${loc('written_off').count})`, value: loc('written_off').value, money: true, color: '#8c8c8c' },
+          { label: 'عدادات بدون تكلفة (تُسجَّل من الأرصدة الافتتاحية)', value: loc('untracked').count, color: '#8c8c8c' },
+          { label: 'مشتراة ولم تُسجَّل بعد', value: lg.boughtNotRegistered, money: true, color: GOLD },
+          { label: 'رصيد حساب المخزون', value: lg.stockAccountBalance, money: true },
+          { label: Number(lg.difference ?? 0) === 0 ? 'الفرق مع الدفاتر ✓' : 'الفرق مع الدفاتر', value: lg.difference, money: true, color: Number(lg.difference ?? 0) === 0 ? '#389e0d' : '#ff4d4f' },
+        ],
+        chart: { labels: ['في المخزون', 'مركّبة', 'مشطوبة'], series: [{ name: 'القيمة', data: [loc('stock').value, loc('installed').value, loc('written_off').value].map(Number) }], type: 'donut' },
       };
     }
     case 'vat': {
@@ -166,7 +194,9 @@ const ReportsPage: React.FC = () => {
   const [groupBy, setGroupBy] = useState<string>('building');
   const [buildingId, setBuildingId] = useState<number | undefined>();
   const [buildings, setBuildings] = useState<{ id: number; code: string; name?: string }[]>([]);
-  const [data, setData] = useState<any>(null);
+  // result tagged with its report: right after switching, the old report's data must never be shaped by the new report
+  const [res, setRes] = useState<{ report: ReportKey; data: any } | null>(null);
+  const data = res && res.report === report ? res.data : null;
   const [loading, setLoading] = useState(false);
   const [key, setKey] = useState(0);
   const def = REPORTS.find(r => r.key === report)!;
@@ -174,7 +204,7 @@ const ReportsPage: React.FC = () => {
   useEffect(() => {
     api<Paged<any>>('/buildings', { query: { pageSize: 0 } }).then(r => setBuildings(r.items.map((b: any) => ({ id: b.id, code: b.code ?? b.no, name: b.name })))).catch(() => setBuildings([]));
   }, []);
-  useEffect(() => { setGroupBy(def.groups?.[0].value ?? ''); setData(null); setParams({ r: report }, { replace: true }); }, [report]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setGroupBy(def.groups?.[0].value ?? ''); setRes(null); setParams({ r: report }, { replace: true }); }, [report]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (def.groups && !def.groups.some(g => g.value === groupBy)) return;
@@ -184,8 +214,8 @@ const ReportsPage: React.FC = () => {
     if (def.groups) query.groupBy = groupBy;
     if (def.building && buildingId) query.buildingId = buildingId;
     api<any>(`/reports/${report}`, { query })
-      .then(setData)
-      .catch(e => { setData(null); message.error(errorMessage(e)); })
+      .then(d => setRes({ report, data: d }))
+      .catch(e => { setRes(null); message.error(errorMessage(e)); })
       .finally(() => setLoading(false));
   }, [report, groupBy, range, buildingId, branchId, key]); // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -3,6 +3,7 @@ import { Modal, Form, Input, Select, DatePicker, InputNumber, Row, Col, message,
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
 import { api, errorMessage, type Paged } from '../../api/client';
+import { postReceipt } from '../../api/receipts';
 import { useReference, locName } from '../../api/reference';
 import { METHODS, money } from './shared';
 
@@ -86,7 +87,7 @@ export function RecordPaymentModal({ open, tenantId, tenantName, onClose, onSave
     const v = await form.validateFields();
     setSaving(true);
     try {
-      const r = await api<any>('/payments', { method: 'POST', body: {
+      const r = await postReceipt<any>({ method: 'POST', body: {
         tenantId, amount: v.amount, date: v.date.format('YYYY-MM-DD'), method: v.method, reference: v.reference || null, notes: v.notes || null, invoiceId: v.invoiceId ?? null,
       } });
       message.success(`تم تسجيل الدفعة ${r?.receiptNo ?? ''}`);

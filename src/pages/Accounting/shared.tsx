@@ -20,6 +20,7 @@ export const ACCOUNT_TYPES: Record<string, { label: string; color: string }> = {
 export const SOURCE_TYPES: Record<string, string> = {
   manual: 'قيد يدوي', opening: 'أرصدة افتتاحية', invoice: 'فاتورة مبيعات', payment: 'سند قبض', vendor_bill: 'فاتورة مورد', vendor_payment: 'دفعة مورد',
   voucher: 'سند قبض/صرف', refill_request: 'طلب تعبئة', amc_contract: 'عقد صيانة', credit_note: 'إشعار دائن', refund: 'رد مبلغ', bank_transfer: 'تحويل بنكي',
+  amc_revenue: 'إثبات إيراد عقد صيانة', meter_cost: 'تكلفة عداد', opening_meters: 'قيمة افتتاحية للعدادات', customer_refund: 'استرداد للعميل', deposit_offset: 'خصم من التأمين', deposit_refund: 'رد تأمين',
 };
 
 export const JOURNAL_STATUS: Record<string, { label: string; color: string }> = {

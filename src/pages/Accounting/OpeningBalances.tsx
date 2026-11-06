@@ -75,6 +75,62 @@ function PartyEditor({ partyType, date, branchId, onDone }: { partyType: 'custom
   );
 }
 
+/** Meters owned before the system (no purchase bill): give them a cost per brand / model → Dr meters in stock / fixed assets, Cr opening equity. */
+function MeterOpening({ date, branchId }: { date: Dayjs; branchId?: number }) {
+  const [st, setSt] = useState<any>(null);
+  const [costs, setCosts] = useState<Record<string, number | null>>({});
+  const [def, setDef] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const load = () => api<any>('/opening-balances/meters', { query: { branchId } }).then(setSt).catch(e => message.error(errorMessage(e)));
+  useEffect(() => { load(); }, [branchId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const key = (m: any) => `${m.brand ?? ''}|${m.model ?? ''}`;
+  const models: any[] = st?.models ?? [];
+  const costOf = (m: any) => costs[key(m)] ?? def ?? 0;
+  const preview = models.reduce((s, m) => s + (m.inStock + m.installed) * Number(costOf(m)), 0);
+  const counted = models.filter(m => Number(costOf(m)) > 0).reduce((s, m) => s + m.inStock + m.installed, 0);
+  const save = async () => {
+    if (preview <= 0) { message.warning('أدخل تكلفة العداد (لكل موديل أو تكلفة افتراضية)'); return; }
+    setSaving(true);
+    try {
+      const r = await api<any>('/opening-balances/meters', { body: { branchId, date: date.format('YYYY-MM-DD'), defaultUnitCost: def ?? undefined,
+        models: models.filter(m => costs[key(m)] != null).map(m => ({ brand: m.brand, model: m.model, unitCost: costs[key(m)] })) } });
+      message.success(`تم تسجيل قيمة ${r.meters} عداد بإجمالي ${num(r.total)} — ${r.journals.map((j: any) => j.journalNo).join('، ')}`, 8);
+      setCosts({}); setDef(null); load();
+    } catch (e) { message.error(errorMessage(e), 8); } finally { setSaving(false); }
+  };
+  return (
+    <div>
+      <Alert type="info" showIcon style={{ marginBottom: 10 }}
+        message="العدادات الموجودة قبل بدء النظام ليس لها فاتورة شراء، لذلك قيمتها غير مسجلة في الدفاتر."
+        description="أدخل تكلفة العداد لكل موديل (أو تكلفة افتراضية للجميع). العدادات في المخزون تُسجَّل في «عدادات غاز بالمخزون»، والمركّبة في «الأصول الثابتة» (لكل مبنى)، مقابل حساب الأرصدة الافتتاحية. العدادات المفقودة / المستبعدة لا تُسجَّل. العداد الذي سُجِّلت قيمته لا يتكرر." />
+      <Space wrap style={{ marginBottom: 8 }}>
+        <span>تكلفة افتراضية لكل عداد:</span>
+        <InputNumber min={0} value={def} onChange={v => setDef(v == null ? null : Number(v))} addonAfter="د.إ" style={{ width: 180 }} />
+        <Text type="secondary" style={{ fontSize: 12 }}>تُستخدم للموديلات التي لا تُدخل لها تكلفة</Text>
+      </Space>
+      <Table size="small" rowKey={key} pagination={false} dataSource={models} locale={{ emptyText: 'كل العدادات لها قيمة مسجلة' }}
+        columns={[
+          { title: 'الشركة المصنعة', dataIndex: 'brand', render: v => v ?? '—' }, { title: 'الموديل', dataIndex: 'model', render: v => v ?? '—' },
+          { title: 'في المخزون', dataIndex: 'inStock' }, { title: 'مركّبة', dataIndex: 'installed' },
+          { title: 'مفقودة / مستبعدة (لا تُسجَّل)', dataIndex: 'skipped', render: v => v || '—' },
+          { title: 'تكلفة العداد', key: 'c', width: 160, render: (_, m) => <InputNumber size="small" min={0} style={{ width: '100%' }} placeholder={def != null ? String(def) : ''}
+              value={costs[key(m)] ?? null} onChange={v => setCosts(c => ({ ...c, [key(m)]: v == null ? null : Number(v) }))} /> },
+          { title: 'القيمة', key: 'v', render: (_, m) => num((m.inStock + m.installed) * Number(costOf(m))) },
+        ]}
+        summary={() => <Table.Summary.Row style={{ background: '#fafafa' }}>
+          <Table.Summary.Cell index={0} colSpan={6}><b>الإجمالي ({counted} عداد)</b></Table.Summary.Cell>
+          <Table.Summary.Cell index={1}><b>{num(preview)}</b></Table.Summary.Cell>
+        </Table.Summary.Row>} />
+      <Popconfirm title={`تسجيل قيمة ${counted} عداد بإجمالي ${num(preview)} بتاريخ ${date.format('YYYY-MM-DD')}؟`} okText="تسجيل" cancelText="إلغاء" onConfirm={save}>
+        <Button type="primary" icon={<SaveOutlined />} loading={saving} style={{ marginTop: 8 }} disabled={!models.length}>تسجيل قيمة العدادات</Button>
+      </Popconfirm>
+      {st?.journals?.length > 0 && <Table size="small" style={{ marginTop: 16 }} rowKey="id" pagination={false} dataSource={st.journals} title={() => <b style={{ color: PRIMARY }}>القيود المسجلة</b>}
+        columns={[{ title: 'رقم القيد', dataIndex: 'journalNo' }, { title: 'التاريخ', dataIndex: 'entryDate' }, { title: 'المبلغ', dataIndex: 'total', render: num },
+          { title: 'الحالة', dataIndex: 'status', render: s => <Tag color={JOURNAL_STATUS[s]?.color}>{JOURNAL_STATUS[s]?.label ?? s}</Tag> }]} />}
+    </div>
+  );
+}
+
 function PartyPicker({ opts, onSearch, value, onChange }: { opts: any[]; onSearch: (s?: string) => void; value?: number; onChange: (id?: number, o?: any) => void }) {
   return <Select size="small" allowClear showSearch filterOption={false} onSearch={onSearch} style={{ width: 260 }} value={value} placeholder="بحث…"
     onChange={(v?: number) => onChange(v, opts.find(o => o.id === v))}
@@ -179,6 +235,7 @@ export default function OpeningBalances() {
               columns={[{ title: 'الفاتورة', dataIndex: 'invoiceNo' }, { title: 'العميل', key: 'n', render: (_, c: any) => <span>{c.name} {c.code && <Tag>{c.code}</Tag>}</span> },
                 { title: 'التاريخ', dataIndex: 'date' }, { title: 'الاستحقاق', dataIndex: 'dueDate' }, { title: 'المبلغ', dataIndex: 'amount', render: num }]} />}
           </div> },
+          { key: 'meters', label: 'قيمة العدادات', children: <MeterOpening date={date} branchId={branchId} /> },
           { key: 'suppliers', label: 'أرصدة الموردين', children: <div>
             <PartyEditor partyType="supplier" date={date} branchId={branchId} onDone={load} />
             {status?.suppliers?.length > 0 && <Table size="small" style={{ marginTop: 16 }} rowKey="id" dataSource={status.suppliers} pagination={{ pageSize: 20 }} title={() => <b style={{ color: PRIMARY }}>المسجّل</b>}

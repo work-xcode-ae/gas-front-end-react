@@ -8,6 +8,7 @@ import './i18n';
 import AppLayout from './components/layout/AppLayout';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import LoginPage from './pages/Login';
+import { applyBranding, useBranding } from './api/branding';
 import Dashboard from './pages/Dashboard';
 import Buildings from './pages/Buildings';
 import ApartmentsPage from './pages/Apartments';
@@ -42,6 +43,9 @@ const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 const AppContent: React.FC = () => {
   const { i18n } = useTranslation();
   const isRTL = i18n.language === 'ar';
+  // browser tab title + icon follow the company information (Settings → Company)
+  const branding = useBranding();
+  React.useEffect(() => { applyBranding(branding, i18n.language); }, [branding, i18n.language]);
 
   return (
     <ConfigProvider

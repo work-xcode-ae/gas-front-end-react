@@ -12,6 +12,7 @@ const { Text } = Typography;
 /** Expense type of a bill line — decides the cost account it posts to (Settings → account mapping). */
 const BILL_ITEM_TYPES = [
   { value: 'gas_purchase', label: 'مشتريات غاز' },
+  { value: 'meter_purchase', label: 'عدادات غاز (مخزون)' },
   { value: 'maintenance', label: 'صيانة / مقاول' },
   { value: 'fixed_asset', label: 'أصل ثابت (يُرسمل)' },
   { value: 'gov_fees', label: 'رسوم حكومية' },
@@ -28,6 +29,8 @@ export default function PurchaseBills() {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [vendors, setVendors] = useState<any[]>([]);
+  const [buildings, setBuildings] = useState<{ value: number; label: string }[]>([]);
+  const [buildingId, setBuildingId] = useState<number | undefined>();
   const [vendorId, setVendorId] = useState<number | undefined>();
   const [status, setStatus] = useState<string | undefined>();
   const [range, setRange] = useState<[Dayjs, Dayjs] | null>([dayjs().startOf('year'), dayjs()]);
@@ -40,11 +43,15 @@ export default function PurchaseBills() {
   const [form] = Form.useForm();
 
   useEffect(() => { api<any[]>('/vendors/options').then(r => setVendors(r.filter(v => v.code !== 'OWN-COMPANY'))).catch(() => setVendors([])); }, []);
+  useEffect(() => {
+    api<Paged<any>>('/buildings', { query: { pageSize: 0 } })
+      .then(r => setBuildings(r.items.map((b: any) => ({ value: b.id, label: `${b.code ?? ''} ${b.name ?? ''}`.trim() })))).catch(() => setBuildings([]));
+  }, []);
   const load = useCallback(() => {
     setLoading(true);
-    api<Paged<any>>('/vendor-bills', { query: { pageSize: 0, vendorId, status, from: range?.[0]?.format('YYYY-MM-DD'), to: range?.[1]?.format('YYYY-MM-DD'), search: search || undefined } })
+    api<Paged<any>>('/vendor-bills', { query: { pageSize: 0, vendorId, buildingId, status, from: range?.[0]?.format('YYYY-MM-DD'), to: range?.[1]?.format('YYYY-MM-DD'), search: search || undefined } })
       .then(r => setRows(r.items)).catch(e => message.error(errorMessage(e))).finally(() => setLoading(false));
-  }, [vendorId, status, range, search]);
+  }, [vendorId, buildingId, status, range, search]);
   useEffect(() => { load(); }, [load]);
 
   const live = rows.filter(r => r.status !== 'cancelled' && r.status !== 'draft');
@@ -57,7 +64,7 @@ export default function PurchaseBills() {
     setSaving(true);
     try {
       await api('/vendor-bills', { method: 'POST', body: {
-        vendorId: v.vendorId, billNo: v.billNo, billDate: v.billDate.format('YYYY-MM-DD'), dueDate: v.dueDate?.format('YYYY-MM-DD') ?? null, notes: v.notes || null,
+        vendorId: v.vendorId, billNo: v.billNo, billDate: v.billDate.format('YYYY-MM-DD'), dueDate: v.dueDate?.format('YYYY-MM-DD') ?? null, notes: v.notes || null, buildingId: v.buildingId ?? null,
         items: (v.items ?? []).map((i: any) => ({ itemType: i.itemType ?? 'other', description: i.description, quantity: i.quantity, uom: 'each', unitPrice: i.unitPrice, vatRate: i.vatRate ?? 0, taxRateId: i.taxRateId ?? null })),
       } });
       message.success('تم تسجيل فاتورة المشتريات');
@@ -99,6 +106,7 @@ export default function PurchaseBills() {
         <Space wrap>
           <DatePicker.RangePicker value={range as any} onChange={r => setRange(r as any)} />
           <Select allowClear showSearch optionFilterProp="label" placeholder="المورد" style={{ width: 200 }} value={vendorId} onChange={setVendorId} options={vendors.map(v => ({ value: v.id, label: v.name }))} />
+          <Select allowClear showSearch optionFilterProp="label" placeholder="المبنى" style={{ width: 180 }} value={buildingId} onChange={setBuildingId} options={buildings} />
           <Select allowClear placeholder="الحالة" style={{ width: 140 }} value={status} onChange={setStatus} options={Object.entries(BILL_STATUS).map(([k, s]) => ({ value: k, label: s.label }))} />
           <Input.Search allowClear placeholder="رقم الفاتورة، المورد…" style={{ width: 220 }} onSearch={setSearch} />
           <Button icon={<ReloadOutlined />} onClick={load} />
@@ -112,6 +120,7 @@ export default function PurchaseBills() {
           { title: 'رقم الفاتورة', dataIndex: 'billNo', render: v => <Text style={{ fontFamily: 'monospace', fontSize: 12 }}>{v}</Text> },
           { title: 'المورد', dataIndex: 'vendor' },
           { title: 'المصدر', dataIndex: 'sourceType', render: s => <Tag>{SOURCE[s] ?? s ?? 'يدوية'}</Tag> },
+          { title: 'المبنى', dataIndex: 'buildingCode', render: (v, r) => v ? <Text title={r.building}>{v}</Text> : <Text type="secondary">—</Text> },
           { title: 'التاريخ', dataIndex: 'billDate' },
           { title: 'الاستحقاق', dataIndex: 'dueDate', render: (v, r) => <span style={{ color: overdue.includes(r) ? '#cf1322' : undefined }}>{v ?? '—'}</span> },
           { title: 'الإجمالي', dataIndex: 'totalAmount', render: v => money(v) },
@@ -132,6 +141,7 @@ export default function PurchaseBills() {
           <Descriptions column={1} bordered size="small">
             <Descriptions.Item label="المورد">{view.vendor}</Descriptions.Item>
             <Descriptions.Item label="المصدر">{SOURCE[view.sourceType] ?? view.sourceType ?? 'يدوية'}</Descriptions.Item>
+            <Descriptions.Item label="المبنى">{view.building ? `${view.buildingCode} — ${view.building}` : '—'}</Descriptions.Item>
             <Descriptions.Item label="التاريخ / الاستحقاق">{view.billDate} / {view.dueDate ?? '—'}</Descriptions.Item>
             <Descriptions.Item label="قبل الضريبة">{money(view.subtotal)}</Descriptions.Item>
             <Descriptions.Item label="الضريبة">{money(view.vatAmount)}</Descriptions.Item>
@@ -145,7 +155,7 @@ export default function PurchaseBills() {
         {view?.sourceType === 'refill_request' && <Alert style={{ marginTop: 12 }} type="info" showIcon message="فاتورة مرتبطة بطلب تعبئة — تُدار من مراحل الطلب." />}
       </Drawer>
 
-      <Modal open={newOpen} width={820} title="فاتورة مشتريات جديدة" okText="حفظ" cancelText="إلغاء" onOk={save} confirmLoading={saving} onCancel={() => setNewOpen(false)} destroyOnClose>
+      <Modal open={newOpen} width={940} title="فاتورة مشتريات جديدة" okText="حفظ" cancelText="إلغاء" onOk={save} confirmLoading={saving} onCancel={() => setNewOpen(false)} destroyOnClose>
         <Form form={form} layout="vertical">
           <Row gutter={12}>
             <Col span={10}><Form.Item name="vendorId" label="المورد" rules={[{ required: true, message: 'مطلوب' }]}><Select showSearch optionFilterProp="label" options={vendors.map(v => ({ value: v.id, label: v.name }))} /></Form.Item></Col>
@@ -153,13 +163,20 @@ export default function PurchaseBills() {
             <Col span={4}><Form.Item name="billDate" label="التاريخ" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
             <Col span={4}><Form.Item name="dueDate" label="الاستحقاق"><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
           </Row>
+          <Row gutter={12}>
+            <Col span={10}>
+              <Form.Item name="buildingId" label="المبنى (اختياري)" tooltip="تُحمَّل التكلفة على هذا المبنى في تقرير ربحية المباني">
+                <Select allowClear showSearch optionFilterProp="label" placeholder="عام — غير مخصص لمبنى" options={buildings} />
+              </Form.Item>
+            </Col>
+          </Row>
           <Form.List name="items">
             {(fields, { add, remove }) => (
               <>
                 {fields.map(f => (
                   <Row gutter={8} key={f.key} align="middle">
-                    <Col span={4}><Form.Item name={[f.name, 'itemType']} initialValue="other" style={{ marginBottom: 8 }}><Select options={BILL_ITEM_TYPES} /></Form.Item></Col>
-                    <Col span={7}><Form.Item name={[f.name, 'description']} rules={[{ required: true, message: 'البيان' }]} style={{ marginBottom: 8 }}><Input placeholder="البيان" /></Form.Item></Col>
+                    <Col span={6}><Form.Item name={[f.name, 'itemType']} initialValue="other" style={{ marginBottom: 8 }}><Select options={BILL_ITEM_TYPES} popupMatchSelectWidth={false} /></Form.Item></Col>
+                    <Col span={5}><Form.Item name={[f.name, 'description']} rules={[{ required: true, message: 'البيان' }]} style={{ marginBottom: 8 }}><Input placeholder="البيان" /></Form.Item></Col>
                     <Col span={3}><Form.Item name={[f.name, 'quantity']} style={{ marginBottom: 8 }}><InputNumber min={0.001} placeholder="الكمية" style={{ width: '100%' }} /></Form.Item></Col>
                     <Col span={4}><Form.Item name={[f.name, 'unitPrice']} style={{ marginBottom: 8 }}><InputNumber min={0} placeholder="السعر" style={{ width: '100%' }} /></Form.Item></Col>
                     <Col span={3}>

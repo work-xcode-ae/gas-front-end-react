@@ -15,6 +15,7 @@ import { track, installGlobalTracking } from '../../api/track';
 import SessionsModal from '../SessionsModal';
 import { GlobalFiltersProvider, useGlobalFilters } from '../../context/GlobalFilters';
 import { useReference, locName } from '../../api/reference';
+import { useBranding, appName, brandingFileUrl } from '../../api/branding';
 
 const { Sider, Content } = Layout;
 
@@ -126,6 +127,10 @@ const AppLayoutInner: React.FC<AppLayoutProps> = ({ children }) => {
   ];
 
   const { user, logout } = useAuth();
+  const branding = useBranding();
+  const logoUrl = brandingFileUrl(branding?.logoPath);
+  const nameAr = appName(branding, 'ar');
+  const nameEn = appName(branding, 'en');
   const [sessionsOpen, setSessionsOpen] = useState(false);
   const { can } = useAuth();
   // real alert count for the bell (expiring certificates / contracts / calibration, low tanks …), refreshed every 5 minutes
@@ -282,14 +287,18 @@ const AppLayoutInner: React.FC<AppLayoutProps> = ({ children }) => {
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, minWidth: 200 }}>
               <div style={{
                 width: 72, height: 72, borderRadius: '50%',
-                background: 'linear-gradient(135deg, #1a5c2a, #0b2e18)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: logoUrl ? '#fff' : 'linear-gradient(135deg, #1a5c2a, #0b2e18)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
                 fontSize: 32, border: '3px solid #c9a84c', flexShrink: 0,
                 boxShadow: '0 4px 12px rgba(26,92,42,0.3)',
-              }}>⛽</div>
+              }}>
+                {logoUrl
+                  ? <img src={logoUrl} alt={nameEn} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  : '⛽'}
+              </div>
               <div>
-                <div style={{ fontSize: 26, fontWeight: 900, color: '#1a5c2a', lineHeight: 1.1, fontFamily: 'Cairo, sans-serif' }}>بـن سـدرة</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#c9a84c', letterSpacing: 1 }}>BIN SIDRA GAS</div>
+                <div style={{ fontSize: 26, fontWeight: 900, color: '#1a5c2a', lineHeight: 1.1, fontFamily: 'Cairo, sans-serif' }}>{nameAr}</div>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#c9a84c', letterSpacing: 1 }}>{nameEn.toUpperCase()}</div>
                 <div style={{ fontSize: 10, color: '#666' }}>أمان .. طاقة .. لمستقبل أفضل</div>
               </div>
             </div>
@@ -297,7 +306,7 @@ const AppLayoutInner: React.FC<AppLayoutProps> = ({ children }) => {
             {/* Center welcome */}
             <div style={{ textAlign: 'center', flex: 1, padding: '0 20px' }}>
               <div style={{ fontSize: 22, fontWeight: 900, color: '#1a3a20', fontFamily: 'Cairo, sans-serif', lineHeight: 1.3 }}>
-                {isRTL ? 'مرحباً بك في نظام بن سدرة لإدارة الغاز' : 'Welcome to Bin Sidra Gas Management System'}
+                {isRTL ? `مرحباً بك في نظام ${nameAr}` : `Welcome to ${nameEn} Management System`}
               </div>
               <div style={{ fontSize: 13, color: '#4a6a50', marginTop: 4, fontFamily: 'Cairo, sans-serif' }}>
                 {isRTL ? 'إدارة متكاملة .. لخدمتكم بشكل أفضل' : 'Integrated Management .. Serving You Better'}
